@@ -34,3 +34,6 @@ logs/*
 .DS_Store
 .idea/
 .vscode/
+
+# Local marker for the locked golden set (see eval/golden/README.md)
+eval/golden/.locked
