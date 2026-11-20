@@ -1,6 +1,6 @@
 # Spot-check: confirm three draft answers by eye
 
-For three answerable questions in `questions.draft.yaml`, this gives the exact file, page and row
+For three answerable questions in `questions.yaml`, this gives the exact file, page and row
 so you can open the PDF and check the number yourself. Files are in `data/raw/mcc/2025/`; fetch
 and verify them with `scripts/fetch_sources.sh`.
 

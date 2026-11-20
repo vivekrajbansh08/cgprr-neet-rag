@@ -8,9 +8,7 @@ Two groups:
     when the PDFs (gitignored) or pdftotext are not available, e.g. in CI.
 """
 
-import importlib
 import shutil
-import sys
 from decimal import Decimal
 from pathlib import Path
 
@@ -18,24 +16,6 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 RAW = ROOT / "data" / "raw" / "mcc" / "2025"
-
-
-@pytest.fixture(scope="module")
-def op():
-    sys.path.insert(0, str(ROOT / "scripts"))
-    try:
-        yield importlib.import_module("oracle_parse")
-    finally:
-        sys.path.remove(str(ROOT / "scripts"))
-
-
-@pytest.fixture(scope="module")
-def oc(op):
-    sys.path.insert(0, str(ROOT / "scripts"))
-    try:
-        yield importlib.import_module("oracle_closing_rank")
-    finally:
-        sys.path.remove(str(ROOT / "scripts"))
 
 
 # ---------------------------------------------------------------- synthetic layout helpers
@@ -318,11 +298,6 @@ needs_pdfs = pytest.mark.skipif(
 )
 
 
-@pytest.fixture(scope="module")
-def parsed(op):
-    return {r: op.parse_allotments(RAW / f"r{r}_allotment_final.pdf", r) for r in (1, 2, 3)}
-
-
 @needs_pdfs
 @pytest.mark.parametrize(
     ("round_no", "rows", "allotments"),
@@ -344,7 +319,7 @@ def test_real_exactly_one_fractional_rank_per_round(parsed, round_no):
     assert len(fractional) == 1
 
 
-# Closing ranks pinned for eval/golden/questions.draft.yaml (aggregates only).
+# Closing ranks pinned for eval/golden/questions.yaml (aggregates only).
 PINNED = [
     (1, "Open Seat Quota", "AIIMS, New Delhi", "MBBS", "Open", "48", 48, 4),
     (1, "Deemed/Paid Seats Quota", "Manipal Univ., Manipal", "MBBS", "Open", "40008", 212, 437),

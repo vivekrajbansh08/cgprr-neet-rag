@@ -5,6 +5,7 @@ description = "CLI: run the locked eval set and write eval/results/score_table.m
 requires-python = ">=3.11"
 dependencies = [
     "neet-common",
+    "pyyaml>=6.0.3",
 ]
 
 [build-system]

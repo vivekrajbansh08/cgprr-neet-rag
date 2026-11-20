@@ -13,10 +13,14 @@ build/
 .env.*
 !.env.example
 
-# Data: raw MCC PDFs and any row-level data are never committed
+# Data: raw MCC PDFs, row-level data and anything derived from them are never committed
+# (MCC copyright: rebuild locally with scripts/fetch_sources.sh + ingest; project rule d)
 data/raw/*
 !data/raw/.gitkeep
 !data/raw/MANIFEST.md
+data/derived/*
+!data/derived/.gitkeep
+!data/derived/README.md
 *.pdf
 *.parquet
 *.sqlite

@@ -1,5 +1,7 @@
 # Raw source manifest
 
+**Source: Medical Counselling Committee (MCC), Government of India, mcc.nic.in**
+
 The PDFs under `data/raw/` are not committed. Each one is listed here so anyone can fetch the same
 file and check it against its sha256. `scripts/fetch_sources.sh` re-downloads every file below to
 the same path and verifies the sha256 (`--force` re-downloads even if present).

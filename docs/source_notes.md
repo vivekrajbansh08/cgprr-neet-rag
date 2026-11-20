@@ -1,5 +1,13 @@
 # Source notes: MCC NEET-UG 2025 allotment results and seat matrices
 
+> **Source: Medical Counselling Committee (MCC), Government of India, mcc.nic.in**
+>
+> MCC's copyright policy allows reproduction only "after taking proper permission" (quoted in
+> `data/raw/MANIFEST.md`). This repo therefore commits neither MCC's files nor tables derived
+> from them. Everything is rebuilt locally (`scripts/fetch_sources.sh`, then ingest); see
+> project rule d and `data/derived/README.md`. Rows below are cited by pointer
+> (file, page, line, SNo/rank), never copied.
+
 Evidence-based notes on the raw files listed in `data/raw/MANIFEST.md`. Every claim below was
 checked against `pdftotext -layout` output (poppler). "p" = PDF page, "l" = line number within
 that page's `pdftotext -layout` text. Quotes are verbatim, with runs of spaces shortened.
@@ -116,10 +124,9 @@ any of the 10 files.
 
 Note: an AIR belongs to exactly one candidate, and top ranks are often publicised with names
 elsewhere. A row-level record (AIR + candidate category + PwD status + college) is therefore
-quasi-identifying. This reinforces the existing rule: only aggregates (closing rank, counts)
-leave Postgres or go into `data/derived/`. Row-level allotments, including AIR and candidate
-category, stay in the local DB and are never committed. The oracle keeps rows in memory only and
-prints aggregates plus a page/line pointer.
+quasi-identifying. Row-level allotments, including AIR and candidate category, stay in the local
+DB and are never committed. Derived aggregates are not committed either (MCC copyright, project rules
+rule d). The oracle keeps rows in memory only and prints aggregates plus a page/line pointer.
 
 ## 4. What "closing rank" means here
 
@@ -142,8 +149,8 @@ largest) AIR among rows that received an allotment **in round N** in that cell.
   - Kasturba Medical College, Manipal Univ., Manipal, Deemed/Paid Seats Quota, MBBS, Open: R1 40008
     (212), R2 43835 (57), R3 31834 (5).
 
-  Answers must name the round, and should report the number of allotments behind the figure. A
-  closing rank from one allotment is weak evidence.
+  Hard rule (project rule g): every answer and predictor output names the round and the number
+  of allotments behind each closing rank. A closing rank from one allotment is weak evidence.
 - **Institute identity.** Allotment PDFs have no institute code. Match on the normalised institute
   string (case- and whitespace-insensitive, because wraps split words: "TA MIL NADU"). If a name
   matches more than one institute, do not pool the rows (see 5.6). Ingest should map each
@@ -276,3 +283,46 @@ current round's closing rank.
   PwD") and prints quotas differently ("All India" in the AIQ matrix, "Employees State Insurance
   Scheme(ESI)" split over two lines in the ESIC matrix). A mapping table is needed; keep it in code
   with tests.
+
+## 6. Decisions (approved 2026-11-20)
+
+1. **Copyright.** No derived table is committed. `data/derived/` is gitignored except its README.
+   Every user-facing view of MCC data carries the credit "Source: Medical Counselling Committee
+   (MCC), Government of India, mcc.nic.in".
+2. **Real rows.** Committed docs cite rows by pointer (file, page, line, SNo/rank) plus only quota,
+   institute, course and allotted category. No candidate-category values, no remark text from a
+   row.
+3. **Per-round closing rank.** As section 4. Every figure carries its round and allotment count
+   (project rule g).
+4. **CW and NRI cells.**
+   - *Predictor:* excludes them entirely. A row is CW/NRI if its quota is a CW quota ("… (CW) DU
+     Quota", "… (CW) IP Quota", "B.Sc Nursing … CW Quota") or an NRI quota ("Non-Resident
+     Indian", "…(AMU)Quota", "…(Jamia)Quota"), **or** its remark carries "CW Rank" or "NRI
+     Priority". The remark test matters: R2 and R3 also have rows in the **Deemed/Paid Seats
+     Quota** with an NRI-priority remark (11 in R2, 10 in R3). Without it they would leak into
+     deemed closing ranks.
+   - *RAG answers* may show CW/NRI closing ranks, but only with the caveat that these seats are
+     allotted by CW rank / NRI priority, not by AIR, so the AIR figure is not the admission cut-off.
+5. **GNYes.** A candidate-category token seen only in R2 (105 rows) and R3 (49 rows). It is stored
+   and displayed verbatim and never interpreted, mapped or merged with any other category.
+   (Closing ranks group by *allotted* category, which never contains it.)
+6. **State comes from the seat matrix.** An institute's state is the **StateName** column of the
+   Round 1 long-layout seat matrices (AIQ except CU, AIIMS/BHU/JIPMER, central universities),
+   never address text in the allotment PDFs. Allotment strings carry no institute code, so
+   `scripts/oracle_seat_matrix.py` matches them to seat-matrix entries:
+   - normalise both strings (lower case, no whitespace);
+   - the longest common prefix must cover the institute name plus the first 8 characters of the
+     next comma-separated part (the city), so a generic prefix like "governmentmedicalcollege," is
+     not enough;
+   - equally good matches in different states are an error, never a guess.
+
+   Coverage: 33 states; all 474 R1 MBBS/BDS institutes outside the deemed/NRI/minority/ESI quotas
+   map to a state. As a cross-check, 473 of 474 agree with the state named in their address
+   (the 474th names no state), with 0 disagreements. Known gaps, reported and never guessed:
+   - B.Sc Nursing colleges: the nursing seat matrix was not downloaded.
+   - Deemed and ESIC-IP institutes: the wide-layout matrices have no StateName column.
+   - Institutes first added in R2/R3 (e.g. ESIC Andheri): not in the Round 1 seat matrix.
+
+   With a state filter, the predictor lists such institutes as "no seat-matrix state" rather than
+   placing them.
+
