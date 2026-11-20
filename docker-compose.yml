@@ -1,0 +1,49 @@
+# For reviewers: Postgres 18 + pgvector in Docker. Ollama runs natively (Docker on macOS cannot use
+# the Apple GPU). Services read LLM_BASE_URL from .env, so Ollama and vLLM are interchangeable.
+#
+# Development on the author's Mac uses Homebrew postgresql@18 + pgvector 0.8.7 instead (see README,
+# "Running without Docker"). This file is validated in CI (.github/workflows/ci.yml), not on that Mac.
+name: neet-rag
+
+services:
+  postgres:
+    # Tag checked against the Docker Hub registry API (linux/amd64 + linux/arm64). pgvector 0.8.7
+    # matches the dev Mac; the image ships PG 18.7, dev runs 18.4 (same major version).
+    image: pgvector/pgvector:0.8.7-pg18
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-neet}
+    ports:
+      # Host port is configurable because a local Postgres may already own 5432.
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-5432}:5432"
+    volumes:
+      # PG 18 images declare VOLUME /var/lib/postgresql (PGDATA=/var/lib/postgresql/18/docker).
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # --- GPU target (Linux + NVIDIA only): `docker compose --profile gpu up`. To be filled in later. ---
+  # vllm:
+  #   profiles: ["gpu"]
+  #   image: vllm/vllm-openai:<pinned-tag>
+  #   command: ["--model", "${LLM_MODEL}", "--host", "0.0.0.0", "--port", "8000"]
+  #   ports:
+  #     - "127.0.0.1:8000:8000"
+  #   volumes:
+  #     - hf-cache:/root/.cache/huggingface
+  #   deploy:
+  #     resources:
+  #       reservations:
+  #         devices:
+  #           - driver: nvidia
+  #             count: all
+  #             capabilities: [gpu]
+
+volumes:
+  pgdata:
+  # hf-cache:

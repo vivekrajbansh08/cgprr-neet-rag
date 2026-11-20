@@ -1,0 +1,31 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --locked
+      - run: uv run ruff check . && uv run ruff format --check .
+      - run: uv run pytest -q
+
+  compose-db:
+    # Validates docker-compose.yml (pgvector/pgvector:0.8.7-pg18), the migrations and the roles.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create .env with throwaway passwords
+        run: |
+          sed -e "s/=change-me/=ci-$(openssl rand -hex 12)/" .env.example > .env
+      - run: docker compose up -d --wait postgres
+      - run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      - run: make migrate
+      - run: make migrate   # second run must be a no-op
+      - run: scripts/check_roles.sh
+      - if: always()
+        run: docker compose logs postgres
