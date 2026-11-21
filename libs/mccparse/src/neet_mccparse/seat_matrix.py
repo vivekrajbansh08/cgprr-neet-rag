@@ -5,7 +5,7 @@ Used by the independent oracle and by jobs/ingest. The state comes from the seat
 
 Long-layout seat matrices (AIQ except CU, AIIMS/BHU/JIPMER, central universities) print one record
 per institute x quota x course x category. Layout facts:
-  * the record's "seat line" ends with branch + category + seats ("MBBS (MBBS)  OP NO  48"), and
+  * the record's "seat line" ends with branch + category + seats ("MBBS (MBBS)  OP NO  37"), and
     starts with StateName;
   * the institute cell (name + address) spans the lines around it and ends with a 6-digit
     institute code in parentheses, "(200631)";

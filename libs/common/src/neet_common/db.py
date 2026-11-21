@@ -8,6 +8,7 @@ from __future__ import annotations
 from typing import Literal
 
 import psycopg
+from psycopg_pool import ConnectionPool
 
 from neet_common.config import Settings
 
@@ -30,4 +31,23 @@ def connect(settings: Settings, role: Role, *, connect_timeout: int = 5) -> psyc
         password=password,
         connect_timeout=connect_timeout,
         application_name=f"cgprr-neet-rag:{role}",
+    )
+
+
+def reader_pool(settings: Settings, *, max_size: int = 4) -> ConnectionPool:
+    """A connection pool as neet_reader (read-only). Build it in a FastAPI lifespan; the caller closes it."""
+    return ConnectionPool(
+        conninfo="",
+        kwargs={
+            "host": settings.postgres_host,
+            "port": settings.postgres_host_port,
+            "dbname": settings.postgres_db,
+            "user": "neet_reader",
+            "password": settings.neet_reader_password.get_secret_value(),
+            "connect_timeout": 5,
+            "application_name": "cgprr-neet-rag:neet_reader",
+        },
+        min_size=1,
+        max_size=max_size,
+        open=False,
     )

@@ -37,3 +37,6 @@ logs/*
 
 # Local marker for the locked golden set (see eval/golden/README.md)
 eval/golden/.locked
+
+# Raw eval runs (answers contain MCC figures; only score_table.md is committed)
+eval/results/runs/

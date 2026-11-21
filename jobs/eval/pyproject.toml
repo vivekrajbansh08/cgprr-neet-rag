@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "CLI: run the locked eval set and write eval/results/score_table.md."
 requires-python = ">=3.11"
 dependencies = [
+    "httpx>=0.27",
     "neet-common",
     "pyyaml>=6.0.3",
 ]

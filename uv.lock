@@ -646,12 +646,14 @@ name = "neet-eval"
 version = "0.1.0"
 source = { editable = "jobs/eval" }
 dependencies = [
+    { name = "httpx" },
     { name = "neet-common" },
     { name = "pyyaml" },
 ]
 
 [package.metadata]
 requires-dist = [
+    { name = "httpx", specifier = ">=0.27" },
     { name = "neet-common", editable = "libs/common" },
     { name = "pyyaml", specifier = ">=6.0.3" },
 ]

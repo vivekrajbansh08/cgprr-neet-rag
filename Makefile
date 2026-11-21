@@ -1,4 +1,4 @@
-.PHONY: up migrate ingest index report eval bench ui test lint
+.PHONY: up migrate ingest index report serve stop eval bench ui test lint
 
 up:
 	@echo "TODO: up (docker compose up -d postgres)"
@@ -15,8 +15,14 @@ index:
 report:
 	uv run python -m neet_ingest.report
 
+serve:
+	@scripts/serve.sh start
+
+stop:
+	@scripts/serve.sh stop
+
 eval:
-	@echo "TODO: eval"
+	uv run python -m neet_eval
 
 bench:
 	@echo "TODO: bench"

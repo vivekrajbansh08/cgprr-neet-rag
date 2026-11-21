@@ -5,7 +5,7 @@ vocabulary of the allotment PDFs (quota names from the allotment legend, categor
 allotments.CATEGORIES).
 
 Long layout (AIQ except CU, AIIMS/BHU/JIPMER, central universities): one record per seat line
-("MBBS (MBBS)  OP NO  48"); category codes OP/BC/EW/SC/ST and NO (non-PwD) / PH (PwD). The quota
+("MBBS (MBBS)  OP NO  37"); category codes OP/BC/EW/SC/ST and NO (non-PwD) / PH (PwD). The quota
 cell sits left of the branch and can wrap over the lines above and below the seat line, be glued to
 the institute text by one space, or be printed entirely above/below a seat line that carries none.
 Wide layout (deemed, ESIC IP): one line per institute x quota with 10 category columns + total and
