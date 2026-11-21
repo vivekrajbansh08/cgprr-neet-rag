@@ -136,10 +136,25 @@ export const predict = (req: PredictRequest) => request<PredictResponse>("/api/p
 
 export const formOptions = () => request<FormOptions>("/api/predictor/form_options", undefined, 20_000);
 
-export async function evidence(name: "manifest.md" | "score_table.md"): Promise<string> {
-  const res = await fetch(`/evidence/${name}`, { cache: "no-store" });
-  if (!res.ok) throw new ApiError(`Could not read ${name} (${res.status}).`);
-  return res.text();
+export type EvidenceSource = { file: string; document: string; pages: string; retrieved: string; sha256: string };
+export type EvidenceQuestion = { id: string; category: string; result: string };
+export type EvidenceCategory = { category: string; passed: string; scored: string; pending: string };
+export type Evidence = {
+  sources: EvidenceSource[];
+  evaluation: { questions: EvidenceQuestion[]; categories: EvidenceCategory[]; passed_total: string; scored_total: string };
+  blind_summary: string | null;
+};
+
+/** Built by scripts/gen-evidence.mjs from data/raw/MANIFEST.md and eval/results/score_table.md. */
+export async function evidence(): Promise<Evidence> {
+  let res: Response;
+  try {
+    res = await fetch("/evidence.json", { cache: "no-store" });
+  } catch {
+    throw new ApiError("The evidence file could not be read.");
+  }
+  if (!res.ok) throw new ApiError(`The evidence file could not be read (${res.status}).`);
+  return (await res.json()) as Evidence;
 }
 
 export const GUARANTEE_SENTENCE =

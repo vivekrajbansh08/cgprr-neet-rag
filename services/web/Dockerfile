@@ -10,5 +10,5 @@ FROM nginx:1.29.8-alpine3.23
 COPY nginx/default.conf /etc/nginx/conf.d/default.conf
 COPY nginx/security-headers.conf /etc/nginx/snippets/security-headers.conf
 COPY --from=build /app/dist /usr/share/nginx/html
-# MANIFEST.md and score_table.md are mounted read-only at /evidence by docker-compose.yml.
+# /evidence.json comes from the committed public/evidence.json (scripts/gen-evidence.mjs).
 EXPOSE 8080

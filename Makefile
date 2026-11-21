@@ -25,7 +25,7 @@ eval:
 	uv run python -m neet_eval
 
 bench:
-	@echo "TODO: bench"
+	uv run python -m neet_bench
 
 ui:
 	@echo "TODO: ui"

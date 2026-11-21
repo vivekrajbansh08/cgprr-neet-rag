@@ -29,6 +29,15 @@ jobs:
           cache-dependency-path: services/web/package-lock.json
       - run: npm ci && npm run build
       - run: npm run contrast
+      - name: public/evidence.json matches MANIFEST.md and score_table.md
+        run: git diff --exit-code -- public/evidence.json
+
+  web-image:
+    # Builds the nginx image for the web UI (services/web/Dockerfile). Not pushed.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build --file services/web/Dockerfile --tag neet-web:ci services/web
 
   compose-db:
     # Validates docker-compose.yml (pgvector/pgvector:0.8.7-pg18), the migrations and the roles.

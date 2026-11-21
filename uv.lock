@@ -616,11 +616,19 @@ name = "neet-bench"
 version = "0.1.0"
 source = { editable = "jobs/bench" }
 dependencies = [
+    { name = "httpx" },
     { name = "neet-common" },
+    { name = "neet-ingest" },
+    { name = "pyyaml" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "neet-common", editable = "libs/common" }]
+requires-dist = [
+    { name = "httpx", specifier = ">=0.27" },
+    { name = "neet-common", editable = "libs/common" },
+    { name = "neet-ingest", editable = "jobs/ingest" },
+    { name = "pyyaml", specifier = ">=6.0.3" },
+]
 
 [[package]]
 name = "neet-common"

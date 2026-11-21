@@ -1,7 +1,7 @@
 # Eval log
 
-The golden set (`eval/golden/questions.yaml`) is also the dev set. Every code or prompt change made
-after seeing a golden result is recorded here: date, what failed, what changed, and why the change
+The golden set (`eval/golden/questions.yaml`) is also the dev set. Every change to code or to the answer
+service's instruction file (`services/answer/prompts/system.txt`) made after seeing a golden result is recorded here: date, what failed, what changed, and why the change
 is general. Nothing in code is keyed to golden question text or ids. Scores in
 `eval/results/score_table.md` are therefore not held-out.
 
@@ -40,10 +40,10 @@ is general. Nothing in code is keyed to golden question text or ids. Scores in
      institute's first word. General: any institute string. Test:
      `test_short_name_stops_at_address_restating_the_name`.
 
-## 2026-11-21: code review and eval audit (changes after the reviewer's and auditor's findings)
+## 2026-11-21: code review and eval audit
 
-Source of each change: **[review]** code review, **[audit]** eval audit of raw answers and
-non-golden probes, **[run]** reading the raw answers of the runs below. Each has a test that fails
+Source of each change: [review] code review, [audit] eval audit of raw answers and
+non-golden probes, [run] reading the raw answers of the runs below. Each has a test that fails
 without it. No change is keyed to question text or ids.
 
 - [review] B1: numbers glued to "." or "," escaped the verifier (".999", ",57", "Round 1,999",
@@ -61,7 +61,7 @@ without it. No change is keyed to question text or ids.
 - [review] The verifier moved to `neet_common.verify`; the eval re-runs it on every returned
   answer and fails (plus `verifier_disagrees`) if the service said ok. Test:
   `test_eval_rechecks_the_answer_itself`.
-- [review] Institute slot grounded in the question: only words the user typed survive, so a model
+- [review] Institute slot grounded in the question: only words present in the question survive, so a model
   "completion" of a campus or an invented institute is never resolved or echoed. Tests:
   `test_ungrounded_institute_completion_is_dropped`, `test_invented_institute_is_not_used`.
 - [review] Scope guard: 19xx/20xx after AIR/rank/score/marks is not a year; the PG-course check runs
@@ -73,10 +73,11 @@ without it. No change is keyed to question text or ids.
   clarify list shows only the tied candidates.
 - [review] Typed `AskDebug`; failed drafts and raw LLM slots go to `logs/answer.log` and appear in
   `debug.trace` only with `debug=true` (the eval runner sets it). Citations and cells carry
-  `source_sha256`. User question is HTML-escaped (< >) inside the prompt. Startup warns if
+  `source_sha256`. The question text is HTML-escaped (< >) inside the model input. Startup warns if
   LLM_BASE_URL is not loopback/private. Eval reads the golden file path from LOCK.json.
-- [audit] Rank comparison is never done by the model: the user's AIR is extracted in code
-  (`extract_user_air`), the prompt forbids comparing, the verifier rejects comparison wording about
+- [audit] Rank comparison is never done by the model: the AIR stated in the question is extracted in
+  code (`extract_user_air`), the instruction file `services/answer/prompts/system.txt` forbids
+  comparing, the verifier rejects comparison wording about
   "your rank/AIR" in any other sentence, and code appends "Your AIR X is at or below|above the
   Round N closing rank C [S#] for this cell." (verified: X equals the question's AIR, N and C match
   S#, relation arithmetically right) plus a not-a-prediction note. Tests:
@@ -125,7 +126,7 @@ Each change has a test that failed before it. No question-specific code.
 - [review] 2025 is not masked when AIR / rank(s) / cut-off / closing occurs within 3 words before
   it, except in the explicit "NEET-UG 2025". Tests: `test_2025_after_rank_words_is_a_number`,
   `test_neet_ug_2025_after_rank_word_is_still_the_year`.
-- [audit] P6, year guard: the user-AIR spans (same extractor as the verifier) and any number right
+- [audit] P6, year guard: user-AIR spans (same extractor as the verifier) and any number right
   after AIR / rank / score / marks (with is/of/:) are not years. Test: `test_air_values_are_not_years`.
 - [review] Round guard: "4th counselling round" and "fourth (counselling) round" are refused.
   Test: `test_counselling_round_beyond_three_refused`.
@@ -167,13 +168,13 @@ texts (`tests/test_answer_integration.py::test_probe_*`, skip without DB/LLM).
   `test_comparison_verdict_must_match_and_bare_yes_no_fails`,
   `test_multi_cell_comparisons_are_checked_per_cell`, `test_comparison_within_reads_yes_and_comes_first`,
   `test_probe_g_comparison_says_no_first`.
-- [unseen-probe] False-premise check fired on the user's own AIR ("closing rank ...? My AIR is
+- [unseen-probe] False-premise check fired on the asker's own AIR ("closing rank ...? My AIR is
   20,100"). New `neet_common.verify.question_claims`: only values the question asserts as a
   cut-off ("the closing rank was X", "cut-off is X", "X was the closing rank"); never a user-AIR
   span, never across ?/!/sentence end or first-person words. Tests:
   `test_question_claims_only_for_asserted_cutoffs`, `test_users_own_air_is_not_a_false_premise`,
   `test_probe_h_own_air_is_not_a_premise`, `test_probe_d_false_premise_not_affirmed`.
-- [unseen-probe] Requests for the system prompt / instructions are refused with a fixed decline
+- [unseen-probe] Requests to reveal the answer service's system prompt / instructions are refused with a fixed decline
   that offers NEET-UG 2025 counselling-data questions, before any LLM call. Counselling "rules"
   questions are not caught. Tests: `test_prompt_leak_requests`,
   `test_counselling_rules_are_not_prompt_requests`, `test_prompt_request_is_refused_before_any_llm_call`,
@@ -204,12 +205,12 @@ texts (`tests/test_answer_integration.py::test_probe_*`, skip without DB/LLM).
   Med=Medical, Inst=Institute, Univ=University, Hosp/Hospt=Hospital, ...); every catalog
   institute is scored, not only the search hits. Ranking key is name-part, core (head + city),
   head; it resolves only with no rival: a rival ties the key, or ties name-part and core while its
-  own head is entirely words the user typed (a generic head), or, when the best's name does not
+  own head is entirely words from the question (a generic head), or, when the best's name does not
   explain the whole query, covers at least as much of the query in its full string. Address text
   can only lead to a clarify. Tests: `test_tight_comma_city_and_govt_abbreviation_resolve_to_the_right_college`,
   `test_generic_head_with_state_word_is_ambiguous_not_a_winner`,
   `test_address_can_only_send_to_clarify_never_pick_a_winner`, `test_resolver_flags_shared_names`.
-- [review] A middle name part the user typed in full ("Manipal Univ.") is not read as the campus
+- [review] A middle name part typed in full in the question ("Manipal Univ.") is not read as the campus
   city: "Kasturba Medical College Manipal Univ" is ambiguous; "... Manipal" still resolves. Tests:
   `test_middle_part_typed_in_full_is_not_read_as_the_city`, `test_resolver_flags_shared_names`.
 - [review] Rule d: the probe integration tests no longer contain MCC figures; expected cells are
@@ -242,15 +243,15 @@ texts (`tests/test_answer_integration.py::test_probe_*`, skip without DB/LLM).
   - [review] The verdict-opener rule checks only sentence openings; model sentences such as "You
     can get this college [S1]." or "Your chances look good [S1]." still pass after the code-built
     comparison. Needs a second-person outcome check when a user AIR is present.
-    **Fixed in Step 5** (see "2026-11-21: Step 5 answer fixes").
-  - [review] "Government Medical College Nagpur" is a clarify (a rival name with extra words the
-    user did not type ties on coverage); a regression from the fail-closed tie rule.
+    Fixed in Step 5 (see "2026-11-21: Step 5 answer fixes").
+  - [review] "Government Medical College Nagpur" is a clarify (a rival name with extra words not
+    in the question ties on coverage); a regression from the fail-closed tie rule.
   - [review] Lowercase "ms"/"dm" in an unknown institute name ("MS Ramaiah") gives the PG refusal
     instead of "not in sources". Dotted initials ("B.J.", "G.S.") do not match plain "BJ", "GS".
   - [audit] Institute names starting with "Pt." (and other unlisted abbreviations) split the
     template sentence in `sentences()`, so the round is "not named" and the answer is refused
     although the cell exists. Fix: extend `_ABBREV_END` or keep institute names from breaking
-    sentences; pin "PT. B.D. SHARMA PGIMS". **Fixed in Step 5** (see "2026-11-21: Step 5 answer
+    sentences; pin "PT. B.D. SHARMA PGIMS". Fixed in Step 5 (see "2026-11-21: Step 5 answer
     fixes").
 
 ## 2026-11-21: Step 5 predictor + eval runner
@@ -268,14 +269,14 @@ Written before the first scored run that includes predictor questions. How `pred
     expected entries; precision = options matched by some expected entry / options. Pass needs both
     = 1. The two values are written to the score table (they are ratios, not MCC figures).
   - `round_and_allotments_named`: every cell of every option has round = the input round and
-    allotments >= 1 (project rule g).
+    allotments >= 1 (hard rule g: closing rank is per round).
   - `cells`: for each matched option, its cells as (category, closing_rank, allotments, file, page,
     line) equal the golden `cells` exactly (closing_rank compared as the printed text).
   - `best_in_scope` (expected_option_count 0, pred-03): options empty and `best_in_scope`
     closing_rank / allotments / file / page / line equal the single golden expected value; an
     `empty_message` must be present.
   - `disclaimer`: `note` and the MCC `source_credit` are present.
-  - `must_not_contain`: the same phrase check as for /ask, applied to the user-visible text of the
+  - `must_not_contain`: the same phrase check as for /ask, applied to the displayed text of the
     response (institute names, explanations, empty_message, note).
 - `expected_behavior: refuse` (pred-04): sent to `/ask` as question text and scored exactly like
   other questions (status `refused`, `must_not_contain`). Not routed to /predict: the question asks
@@ -349,7 +350,7 @@ against the unfixed code first and failed.
   the rule, and 2 distinct texts among them had passed when logged: "Your rank is higher, but this
   does not guarantee a seat ..." (a model comparison, rightly rejected) and "Past figures cannot
   predict your chances; cut-offs vary each year." (fail-closed false positive: such a draft now
-  falls back to the template). Tests: `test_reader_outcome_sentences_fail` (every reviewer string),
+  falls back to the template). Tests: `test_reader_outcome_sentences_fail` (every string from the code review),
   `test_reader_sentences_without_an_outcome_word_pass`, `test_data_labels_are_not_outcome_words`,
   `test_cut_off_is_a_data_word_but_make_the_cut_is_a_verdict`.
 - [review] Nit: pinned the fail-closed merge after an all-caps word ("... [S1] for MBBS. It closed

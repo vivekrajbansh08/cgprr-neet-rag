@@ -22,6 +22,7 @@ data/derived/*
 !data/derived/.gitkeep
 !data/derived/README.md
 *.pdf
+!docs/design_note.pdf
 *.parquet
 *.sqlite
 *.dump
@@ -47,3 +48,6 @@ services/web/dist/
 services/web/test-results/
 services/web/playwright-report/
 docs/screenshots/
+
+# Bench runs (timings + environment only; kept local)
+eval/results/bench/

@@ -95,8 +95,13 @@ for (const width of [1440, 390]) {
 
       await page.goto("/#/evidence");
       await expect(page.getByTestId("local-line")).toBeVisible();
-      // The manifest table (a table when wide, stacked rows when narrow) shows each file's sha256.
-      await expect(page.getByText(/^95c607c2dbd7/).filter({ visible: true }).first()).toBeVisible();
+      // The source table (a table when wide, stacked rows when narrow) shows each file's fingerprint
+      // as a copy button with the full sha256 in its title.
+      const fp = page.getByRole("button", { name: "Copy full sha256 fingerprint of Round 1 allotment result" }).filter({ visible: true });
+      await expect(fp).toHaveText("95c607c2dbd7");
+      await expect(fp).toHaveAttribute("title", /^95c607c2dbd7[0-9a-f]{52}$/);
+      await expect(page.getByRole("heading", { name: "Evaluation" })).toBeVisible();
+      await expect(page.getByTestId("blind-summary")).toBeVisible();
       await shot("evidence");
 
       console.log(`REQUESTS ${width}px ${scheme}: total=${seen.total} external=${seen.external.length}`);
