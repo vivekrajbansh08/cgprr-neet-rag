@@ -1,115 +1,68 @@
-# Design note: cgprr-neet-rag
+# NEET.info Counselling Assistant
 
-Source: Medical Counselling Committee (MCC), Government of India, mcc.nic.in
+<p class="subtitle">Design note · AI Developer take-home, CGPRR group · Vivek Rajbansh · 21 November 2026</p>
 
-## Problem
+## What it does
 
-NEET-UG counselling questions are mostly about numbers: the closing rank of a cell (institute,
-course, quota, allotted category, round) and how many allotments sit behind it. A model that
-recalls or computes such a number can be wrong in a way the reader cannot see. The system answers
-from MCC's public 2025 documents only, runs on one local machine, and reads every figure from a
-database row that it cites.
+The assistant answers questions about NEET-UG 2025 counselling using the official results published by the Medical Counselling Committee (MCC). Every figure it gives comes with the exact file and page it was taken from, so a reader can check it. When the answer is not in those documents, it says so instead of guessing. It runs entirely on one computer, with no outside service involved.
 
-## Architecture
+Source of all data: Medical Counselling Committee (MCC), Government of India, mcc.nic.in.
 
-```
-MCC PDFs (sha256-checked) -> jobs/ingest (pdftotext, libs/mccparse; file, page, line per row)
-  -> Postgres schema neet: allotment, institute, chunk (pgvector), closing_rank views
-       ^ read-only role neet_reader
-  retrieval :8001   FTS + pgvector fused by RRF; fixed SQL cell lookup
-  answer    :8002   scope guard, slots (LLM), resolve, cells, draft (LLM), verify, template or refuse
-  predictor :8003   fixed SQL and a rule in code; no LLM
-  web UI on 127.0.0.1                     LLM: Ollama at LLM_BASE_URL (OpenAI-compatible)
-```
+## How it keeps answers correct
 
-Closing rank is computed in SQL, per round, as the largest AIR allotted in a cell in that round. A
-cell with no allotment in a round has no row, so nothing is carried over between rounds. The
-retrieval service finds candidate institutes with full-text search and bge-m3 vectors fused by
-reciprocal rank fusion; a deterministic resolver then picks one, asks which one is meant
-(clarify), or reports not found.
+Most counselling questions turn on numbers, such as a closing rank, the last All India Rank that received a seat in a given round. An AI model that recalls or works out such a number can be wrong in a way the reader cannot see. So the system is built so that the model never supplies a number.
 
-Why numbers never come from the model:
+- Figures come from a database built from MCC's PDFs, never from the AI model's memory.
+- Every figure is checked against the row it cites before it is shown. If the check fails, the answer is withheld.
+- Rank comparisons ("Was my rank within the closing rank?") are calculated by the program, not the model.
+- Colleges with similar names are never merged. If a name could mean two campuses, the assistant asks which one.
 
-- SQL-only figures. The model sees only cells fetched by fixed, parameterised SQL chosen by code.
-  It has no tools and cannot run queries.
-- Citation verifier (`neet_common.verify`). A sentence that states a number must cite exactly one
-  source, and each number must equal that source's closing rank, or its allotment count when
-  followed by "allotment(s)". Any "Round N" must match the cited round. Model-written admission
-  verdicts ("you can get", "your chances are good") are rejected.
-- Template fallback. A draft that fails the verifier is replaced by a template built from the same
-  rows, which is verified too. With no rows, or a failing template, the reply is a refusal.
-- Code-built comparisons. When the question gives the asker's AIR, the Yes/No sentence comparing it
-  with the closing rank is computed in code and checked arithmetically by the verifier.
-- Predictor. Options come from a fixed rule over `neet.closing_rank` rows, and the explanation is
-  assembled from row fields.
+## How it works
 
-Retrieved text is data: chunks sit in delimited source blocks, chunks that look like instructions
-are dropped, and an injected number cannot pass the verifier. Scope checks (other years, PG
-courses, rounds outside 1 to 3, requests for the system prompt) run before any model call.
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 150" width="100%" font-family="NoteSans, sans-serif" font-size="11" fill="#212224"><defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><polyline points="0,0 10,5 0,10" fill="none" stroke="#142644" stroke-width="1.4"/></marker></defs><rect x="8" y="8" width="624" height="134" rx="6" fill="#FAFAFA" stroke="#142644" stroke-width="1"/><text x="22" y="28">This computer: nothing leaves it</text><rect x="23" y="50" width="126" height="68" rx="4" fill="#FFFFFF" stroke="#142644" stroke-width="1"/><text x="86" y="80" text-anchor="middle"><tspan x="86">MCC result</tspan><tspan x="86" dy="14">PDFs</tspan></text><rect x="179" y="50" width="126" height="68" rx="4" fill="#FFFFFF" stroke="#142644" stroke-width="1"/><text x="242" y="80" text-anchor="middle"><tspan x="242">Local</tspan><tspan x="242" dy="14">database</tspan></text><rect x="335" y="50" width="126" height="68" rx="4" fill="#FFFFFF" stroke="#142644" stroke-width="1"/><text x="398" y="73" text-anchor="middle"><tspan x="398">Assistant</tspan><tspan x="398" dy="14">(open AI model</tspan><tspan x="398" dy="14">+ checker)</tspan></text><rect x="491" y="50" width="126" height="68" rx="4" fill="#FFFFFF" stroke="#142644" stroke-width="1"/><text x="554" y="80" text-anchor="middle"><tspan x="554">Ask and</tspan><tspan x="554" dy="14">Predictor screens</tspan></text><line x1="149" y1="84" x2="177" y2="84" stroke="#142644" stroke-width="1" marker-end="url(#arrow)"/><line x1="305" y1="84" x2="333" y2="84" stroke="#142644" stroke-width="1" marker-end="url(#arrow)"/><line x1="461" y1="84" x2="489" y2="84" stroke="#142644" stroke-width="1" marker-end="url(#arrow)"/></svg>
 
-## Model choice
+MCC's allotment PDFs are read once into a local database, and each row keeps a note of the file, page and line it came from. The Ask screen answers questions in plain language. The Predictor screen takes a rank, category, state and quota and lists colleges whose past closing ranks fit, using fixed rules in the program with no AI model involved.
 
-| model | role | parameters | quantisation | context | licence |
-|---|---|---|---|---|---|
-| qwen2.5:7b-instruct | answer LLM | 7.6B | Q4_K_M | 32,768 | Apache 2.0 |
-| bge-m3 | embeddings | 566.7M | F16 | 8,192 | MIT |
+## What was tested and what it showed
 
-Values from `docs/benchmark.md`. Both fit in 16 GB next to Postgres; the 7B model produces
-schema-constrained JSON for slot extraction, with the verifier and template covering its
-mistakes; bge-m3 is multilingual. Moving to vLLM is a change of `LLM_BASE_URL` and `LLM_MODEL`;
-the vLLM compose profile is planned.
+| Test | Result | What it means |
+|---|---|---|
+| 18 questions written and locked before building | All 18 passed | The same questions were also used while building, so this is not an independent score. |
+| 12 new questions not seen before | Found 7 faults, all fixed | The fixes were made for the type of problem, not for the specific question. |
+| 5 questions from someone outside the project, run once with no changes | No wrong figures, but none were helpful | It asked for a college name instead of saying that fees, bonds and state quotas are not in MCC's results, and did not point to the Predictor. |
+| Figures traced to their source | Spot-checked by hand against the PDFs | Each answer shows the file, page and line it came from, so anyone can repeat the check. |
 
-## Performance and GPU memory estimate
+## Speed and hardware
 
-Measured on an Apple M5 with 16 GB (`docs/benchmark.md`, 20 timed /ask requests, one at a time):
-/ask p50 8.52 s, p95 25.84 s, mean 10.49 s; 97.8% of /ask time is in the LLM; generation rate 9.3
-tokens/s including prompt processing; /predict p50 0.006 s. The run was disturbed: swap use was
-17.0 GB of 18.4 GB just after it, memory pressure is the likely cause, and the p95 and mean are
-inflated by it.
+Tokens are roughly word pieces; the model writes its answers one token at a time.
 
-For one RTX 6000 Ada (48 GB) the same file gives estimates, not measurements, assuming about 960
-GB/s bandwidth, vLLM using 0.9 of VRAM, 2.5 GB overhead, FP16 KV cache and decode at 0.6 of peak
-bandwidth. The 7B model with bge-m3 at 32k context needs about 10.13 GB at 4-bit or 20.74 GB at
-FP16; single-stream decode is about 125 or 38 tokens/s. A 32B model at 4-bit is the largest
-option that keeps 32k contexts and bge-m3 on the card.
+| | Measured on the laptop (Apple M5, 16 GB) | Estimated on the office GPU (RTX 6000 Ada, 48 GB) |
+|---|---|---|
+| Average answer that uses the AI model | About 13 seconds | About 2 seconds |
+| Slowest answer in the test (same question on both) | About 27.5 seconds | About 3.8 seconds |
+| Predictor | Typically under a hundredth of a second | The same; no AI model is involved |
+| Text generation speed | About 9 tokens per second | About 125 tokens per second |
+| Model size that fits | The 7-billion-parameter model used here | A model of about 32 billion parameters, with room for long questions |
 
-## Evaluation method and results
+The laptop ran short of memory during the test and fell back on disk, so its slowest times are inflated. Questions the assistant refuses outright, such as those about other years, take a fraction of a second. The GPU figures are estimates worked out from the card's published specifications and stated assumptions, not measurements. The GPU setup is planned and has not been run: the repository holds only a commented-out placeholder for the GPU server, not a working configuration. The laptop figures and the estimates both come from the benchmark record in the repository.
 
-The golden set of 18 questions (6 answerable, 3 out of index, 3 injection, 2 unsafe advice, 4
-predictor) has expected values derived by oracle scripts and was locked by sha256
-(`eval/golden/LOCK.json`, 2026-11-20 20:49 IST) before the answer pipeline was built. Edits are
-blocked once `eval/golden/.locked` exists, the runner verifies the lock before scoring, and it
-re-runs the citation verifier on every answer.
+## Models
 
-The latest run passed 18 of 18 (`eval/results/score_table.md`, run 20261121T115344Z). The set was
-also the development set; every change made after seeing a result is in `docs/eval_log.md`, and
-no code is keyed to question text. The score is not held-out.
+Qwen2.5 7B Instruct writes the answers and is released under the Apache 2.0 licence. bge-m3 handles search and is released under the MIT licence. I chose them because both have open licences, run offline and fit in 16 GB of memory together with the database. On the office GPU, a larger model of about 32 billion parameters would fit.
 
-Two checks sat outside that loop. Twelve unseen probe questions found faults in institute
-resolution, comparison wording, premise and PG detection, prompt-leak and guarantee handling;
-each fix is general code with a test that uses the probe text. Five blind questions from a person
-not involved in the project were committed, then run once with no changes
-(`eval/blind/results.md`). None gave a figure, so none gave a wrong one, but all five were
-unhelpful: four got the same fixed clarify, one an advice reply that missed the question. Missing:
-a route from Ask to the predictor, a refusal naming fees, bonds or state-quota rules as out of
-scope, and a path for definition questions.
+## Privacy
 
-## Data privacy
+Everything runs on one machine. No question, answer or document is sent to any outside service, and an automated test confirms that the web screens make no outside connections. The assistant can only read the data; it cannot change or delete anything. Individual allotment rows stay on the machine, and nothing derived from MCC's files is published, since MCC requires permission to reproduce its material. On a shared office server, each business (NEET.info, Hirrx and the editorial team) would get its own separate database and its own access keys.
 
-- Postgres, services, logs and model run locally on 127.0.0.1. No cloud LLM, cloud GPU or
-  telemetry.
-- The web UI self-check (`services/web/tests/selfcheck.spec.ts`) fails if any browser request
-  goes to a host other than 127.0.0.1, localhost or ::1.
-- Services connect as `neet_reader` (SELECT only); only ingest uses `neet_ingest`.
-- Row-level data (AIR, category, PwD status, college) is quasi-identifying and stays in the local
-  database. Nothing derived from MCC files is committed.
-- On a site serving several businesses, each gets its own schema or database with its own roles
-  and indexes, and no service holds another business's credentials. The current build has one
-  schema, `neet`.
+## Running cost
 
-## Cost
+There is no charge per question. The only running cost is electricity. A GPU workstation drawing an assumed 450 W, at an assumed ₹8 per unit, costs about ₹3.60 per hour or about ₹29 for an 8-hour day. The tariff is a placeholder and should be replaced with the actual rate.
 
-There is no per-query charge: no cloud API or cloud GPU is used. Electricity is the running cost.
-With the assumptions in `docs/benchmark.md` (₹8 per kWh as a placeholder tariff, one RTX 6000 Ada
-workstation drawing about 450 W under load), that is about ₹3.60 per hour or ₹28.80 per 8-hour
-day. The Mac's draw under load was not measured; one idle reading after the run was about 28.5 W.
+## Known limits and next steps
+
+- Questions about fees, bonds and state quotas should get a clear "this is not in MCC's data" reply, and "which college can I get?" questions should be sent to the Predictor. Neither happens yet.
+- Only 2025 data is loaded, and only Rounds 1 to 3.
+- Some institute names still need the user to pick a campus.
+- Running the system on the office GPU would replace the estimates above with measurements.
+
+Technical details, setup steps and the full test record are in the repository README.

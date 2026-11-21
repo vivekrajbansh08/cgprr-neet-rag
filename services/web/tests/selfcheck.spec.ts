@@ -27,11 +27,14 @@ function track(page: Page) {
   return seen;
 }
 
+/** One question in a fresh conversation (so each screenshot shows a single turn). */
 async function askAndWait(page: Page, question: string) {
   await page.goto("/#/ask");
+  const fresh = page.getByRole("button", { name: "New conversation" });
+  if (await fresh.isVisible()) await fresh.click();
   await page.getByLabel("Your question").fill(question);
   await page.getByRole("button", { name: "Send question" }).click();
-  await expect(page.getByRole("region", { name: "Answer" })).toBeVisible({ timeout: 180_000 });
+  await expect(page.getByRole("region", { name: "Answer" }).last()).toBeVisible({ timeout: 180_000 });
   await page.waitForTimeout(900); // let the fade-in settle before the screenshot
 }
 
@@ -64,15 +67,26 @@ for (const width of [1440, 390]) {
             .filter((t) => t.parentElement!.scrollWidth > t.parentElement!.clientWidth + 1).length,
         }));
         expect(overflow, name).toEqual({ page: 0, clipped: 0 });
+        // Grow the window to the page height first, so sticky parts are not drawn at the scroll offset.
+        await page.evaluate(() => window.scrollTo(0, 0));
+        const h = await page.evaluate(() => document.documentElement.scrollHeight);
+        await page.setViewportSize({ width, height: Math.max(900, h) });
+        await page.waitForTimeout(300);
         await page.screenshot({ path: path.join(SHOTS, `${name}-${width}-${scheme}.png`), fullPage: true });
+        await page.setViewportSize({ width, height: 900 });
       };
 
       await page.goto("/#/ask");
       await expect(page.locator("html")).toHaveClass(scheme === "dark" ? /dark/ : /^(?!.*dark)/);
 
       await askAndWait(page, Q.answered);
-      await expect(page.getByTestId("record")).toBeVisible();
+      await expect(page.getByTestId("record").first()).toBeVisible();
       await expect(page.getByText("Checked against source").first()).toBeVisible();
+      // The source rows sit in a disclosure, closed by default; open it to check the table.
+      const rows = page.getByTestId("source-rows");
+      await expect(rows).not.toHaveAttribute("open");
+      await rows.getByText(/^Source rows \(\d+\)$/).click();
+      await expect(rows.getByRole("table", { name: "Sources" }).or(rows.getByRole("list", { name: "Sources" })).first()).toBeVisible();
       await shot("ask-answered");
 
       await askAndWait(page, Q.clarify);
@@ -132,7 +146,7 @@ test("keyboard focus is visible on the question input and send button", async ({
   await page.screenshot({ path: path.join(SHOTS, "focus-send-1440-light.png") });
 });
 
-test("clarify pick sends institute_id; a new typed question never carries the old pin", async ({ page }) => {
+test("clarify pick sends institute_id; the chip carries it until removed", async ({ page }) => {
   const bodies: Record<string, unknown>[] = [];
   page.on("request", (r) => {
     if (r.url().endsWith("/api/answer/ask")) bodies.push(JSON.parse(r.postData() ?? "{}"));
@@ -140,14 +154,24 @@ test("clarify pick sends institute_id; a new typed question never carries the ol
   await askAndWait(page, Q.clarify);
   const pick = page.getByRole("group", { name: "Pick a campus" }).getByRole("button").first();
   await pick.click();
-  await expect(page.getByRole("region", { name: "Answer" })).toBeVisible({ timeout: 180_000 });
+  await expect(page.getByRole("region", { name: "Answer" })).toHaveCount(2, { timeout: 180_000 });
   await expect.poll(() => bodies.length).toBe(2);
   expect(typeof bodies[1].institute_id).toBe("number");
   await page.waitForFunction(() => !document.querySelector('[aria-busy="true"]'), undefined, { timeout: 180_000 });
+  await expect(page.getByTestId("context-chip")).toBeVisible();
+  // While the chip shows, a typed question carries its pin (the backend ignores it for another institute).
   await page.getByLabel("Your question").fill(Q.answered);
   await page.getByRole("button", { name: "Send question" }).click();
   await expect.poll(() => bodies.length).toBe(3);
-  expect(bodies[2]).toEqual({ question: Q.answered });
+  expect(bodies[2]).toEqual({ question: Q.answered, institute_id: bodies[1].institute_id });
+  await page.waitForFunction(() => !document.querySelector('[aria-busy="true"]'), undefined, { timeout: 180_000 });
+  // Removed chip: no pin.
+  if (await page.getByTestId("context-chip").isVisible()) await page.getByRole("button", { name: "Remove institute context" }).click();
+  await expect(page.getByTestId("context-chip")).toHaveCount(0);
+  await page.getByLabel("Your question").fill(Q.answered);
+  await page.getByRole("button", { name: "Send question" }).click();
+  await expect.poll(() => bodies.length).toBe(4);
+  expect(bodies[3]).toEqual({ question: Q.answered });
 });
 
 test("predictor rank is validated client-side with a labelled inline message", async ({ page }) => {

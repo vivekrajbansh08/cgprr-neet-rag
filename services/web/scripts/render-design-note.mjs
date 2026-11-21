@@ -28,6 +28,14 @@ function toHtml(md) {
     if (!line.trim()) { i++; continue; }
     const h = line.match(/^(#{1,4})\s+(.*)$/);
     if (h) { html.push(`<h${h[1].length}>${inline(h[2])}</h${h[1].length}>`); i++; continue; }
+    if (/^<(svg|div|p class)/.test(line.trim())) {
+      // Raw inline HTML block (used for the SVG diagram and the subtitle): copied as is up to the
+      // first blank line.
+      const buf = [];
+      while (i < lines.length && lines[i].trim()) buf.push(lines[i++]);
+      html.push(buf.join("\n"));
+      continue;
+    }
     if (line.startsWith("```")) {
       const buf = []; i++;
       while (i < lines.length && !lines[i].startsWith("```")) buf.push(lines[i++]);
@@ -63,20 +71,28 @@ function toHtml(md) {
   return html.join("\n");
 }
 
-const css = `
-@page { size: A4; margin: 16mm 17mm; }
-body { font-family: "Inter", -apple-system, "Helvetica Neue", Arial, sans-serif; font-size: 9.6pt;
-  line-height: 1.42; color: #212224; background: #ffffff; margin: 0; }
-h1 { font-size: 15pt; color: #142644; margin: 0 0 4pt; padding-bottom: 4pt; border-bottom: 0.75pt solid #142644; }
-h2 { font-size: 11pt; color: #142644; margin: 9pt 0 3pt; }
-h3 { font-size: 10pt; color: #142644; margin: 7pt 0 2pt; }
+const font = (rel) => readFileSync(path.join(here, "../node_modules", rel)).toString("base64");
+const fonts = `
+@font-face { font-family: "NoteSans"; src: url(data:font/woff2;base64,${font("@fontsource-variable/inter/files/inter-latin-wght-normal.woff2")}) format("woff2"); font-weight: 100 900; }
+@font-face { font-family: "NoteSerif"; src: url(data:font/woff2;base64,${font("@fontsource/source-serif-4/files/source-serif-4-latin-400-normal.woff2")}) format("woff2"); font-weight: 400; }
+@font-face { font-family: "NoteSerif"; src: url(data:font/woff2;base64,${font("@fontsource/source-serif-4/files/source-serif-4-latin-600-normal.woff2")}) format("woff2"); font-weight: 600; }
+`;
+const css = `${fonts}
+@page { size: A4; margin: 18mm 20mm; }
+body { font-family: "NoteSans", sans-serif; font-size: 9.4pt; line-height: 1.45; color: #212224;
+  background: #ffffff; margin: 0; }
+h1 { font-family: "NoteSerif", serif; font-weight: 600; font-size: 19pt; color: #142644; margin: 0 0 2pt; }
+.subtitle { font-size: 8.8pt; color: #212224; margin: 0 0 10pt; }
+h2 { font-family: "NoteSerif", serif; font-weight: 600; font-size: 11.5pt; color: #142644; margin: 10pt 0 3pt; }
+h3 { font-family: "NoteSerif", serif; font-weight: 600; font-size: 10pt; color: #142644; margin: 7pt 0 2pt; }
 p { margin: 0 0 5pt; }
-ul { margin: 0 0 5pt; padding-left: 14pt; } li { margin: 0 0 1.5pt; }
-code, pre { font-family: "SF Mono", Menlo, monospace; font-size: 8.4pt; color: #212224; }
+ul { margin: 0 0 5pt; padding-left: 14pt; } li { margin: 0 0 2pt; }
+code, pre { font-family: Menlo, monospace; font-size: 8.4pt; color: #212224; }
 pre { margin: 0 0 5pt; white-space: pre-wrap; font-size: 7.6pt; }
-table { border-collapse: collapse; margin: 2pt 0 6pt; width: 100%; font-size: 8.8pt; }
-th { text-align: left; color: #212224; border-bottom: 0.75pt solid #142644; padding: 2pt 4pt; }
-td { border-bottom: 0.5pt solid #142644; padding: 2pt 4pt; vertical-align: top; }
+table { border-collapse: collapse; margin: 3pt 0 7pt; width: 100%; font-size: 8.8pt; }
+th { text-align: left; font-weight: 600; color: #212224; border-bottom: 0.75pt solid #ECEDEF; padding: 3pt 5pt 3pt 0; }
+td { border-bottom: 0.75pt solid #ECEDEF; padding: 3pt 5pt 3pt 0; vertical-align: top; }
+svg { display: block; margin: 4pt 0 8pt; max-width: 100%; }
 strong { font-weight: 600; }
 `;
 

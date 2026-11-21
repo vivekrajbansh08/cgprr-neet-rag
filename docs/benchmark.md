@@ -173,6 +173,25 @@ Even using the full 48 GB, a 72B model at 4.85 bits leaves 48 - 44.08 - 2.5 = 1.
 tokens of KV cache, with no room for bge-m3. A 32B model at 4-bit is the largest option that keeps
 full 32k contexts and the embedding model on the same card.
 
+## Estimated answer time on the RTX 6000 Ada (ESTIMATES)
+
+These figures are derived from the measured request mix above and the 4-bit decode estimate. They
+are not measurements.
+
+- Requests that called the model (16 of the 20 timed): on average 119 completion tokens and 1.94
+  model calls per answer, and 0.29 s outside the model. On the laptop these 16 took 13.1 s on
+  average. The slowest request (3 calls, 239 tokens, 0.36 s outside the model) took 27.5 s on the
+  laptop.
+- Assumed: up to 2,000 input tokens per model call, processed at 4,000 tokens/s or faster on the
+  GPU (prefill is compute-bound and much faster than decode; this rate is an assumption, not
+  measured). Decode at about 125 tokens/s (7B, 4-bit, from the estimate above).
+- Average answer that calls the model: 1.94 x (2,000 / 4,000) s + 119 / 125 s + 0.29 s =
+  0.97 + 0.95 + 0.29, about 2.2 s (laptop: 13.1 s).
+- Slowest answer (the same request): 3 x 0.5 s + 239 / 125 s + 0.36 s = 1.5 + 1.91 + 0.36, about
+  3.8 s (laptop: 27.5 s).
+- Predictor: no model call, so its time is set by the database query and stays well under a
+  second, as measured on the laptop.
+
 ## Running cost
 
 Assumptions: electricity at ₹8 per kWh (a placeholder; replace with the actual tariff) and a
