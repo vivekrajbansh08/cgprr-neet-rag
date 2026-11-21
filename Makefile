@@ -1,4 +1,4 @@
-.PHONY: up migrate ingest index eval bench ui test lint
+.PHONY: up migrate ingest index report eval bench ui test lint
 
 up:
 	@echo "TODO: up (docker compose up -d postgres)"
@@ -7,10 +7,13 @@ migrate:
 	@scripts/migrate.sh
 
 ingest:
-	@echo "TODO: ingest"
+	uv run python -m neet_ingest
 
 index:
-	@echo "TODO: index"
+	uv run python -m neet_ingest.index
+
+report:
+	uv run python -m neet_ingest.report
 
 eval:
 	@echo "TODO: eval"
@@ -22,7 +25,7 @@ ui:
 	@echo "TODO: ui"
 
 test:
-	@echo "TODO: test (uv run pytest -q)"
+	uv run pytest -q
 
 lint:
-	@echo "TODO: lint (uv run ruff check . && uv run ruff format --check .)"
+	uv run ruff check . && uv run ruff format --check .

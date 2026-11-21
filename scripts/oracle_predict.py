@@ -27,9 +27,10 @@ from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
 
+from neet_mccparse.allotments import Allotment, parse_allotments
+from neet_mccparse.seat_matrix import SeatMatrixInstitute, load_seat_matrices, state_of
+from neet_mccparse.text import squash
 from oracle_closing_rank import default_pdf
-from oracle_parse import Allotment, parse_allotments, squash
-from oracle_seat_matrix import SeatMatrixInstitute, load_seat_matrices, state_of
 
 CW_NRI_QUOTA = re.compile(r"\(CW\)|CW Quota|Non-Resident Indian")
 CANDIDATE_CATEGORIES = ("General", "OBC", "EWS", "SC", "ST")

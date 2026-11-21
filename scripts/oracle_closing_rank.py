@@ -1,13 +1,21 @@
 #!/usr/bin/env python3
-"""Independent oracle: closing rank from an MCC NEET-UG allotment PDF.
+"""Oracle CLI: closing rank from an MCC NEET-UG allotment PDF.
 
-Method: ONLY `pdftotext -layout` plus regular expressions. No pdfplumber, camelot or other PDF
-library, so this can cross-check the ingest parser (which uses a different method).
+Method: `pdftotext -layout` plus regular expressions, via the shared parser package
+`neet_mccparse`. Ingest uses the SAME parser (decision 2026-11-21), so this CLI no longer
+cross-checks parsing; see docs/source_notes.md section 7 for the independent evidence (seat-matrix
+and keyword reconciliation, eye checks, PDF re-extraction).
 
 Closing rank = the highest (numerically largest) AIR among rows that received an allotment IN THIS
 ROUND for the given quota x institute x course x allotted category. Rows that only carry a seat
 from an earlier round ("Did not opt for Upgradation", "No Upgradation", "-" in the round-N block)
 are not allotments in round N and are excluded. See docs/source_notes.md.
+
+Known divergence from the database: this CLI counts ALL allotments in the cell, including CW/NRI
+rows (CW/NRI quota, or a "CW Rank" / "NRI Priority" remark). The view neet.closing_rank excludes
+them, and neet.closing_rank_cw_nri holds them separately. In 2025, 16 cells mix both kinds; for
+those cells this CLI and the view differ. No golden question uses such a cell. Derive any new golden
+value for one of them from the views, or state the divergence explicitly.
 
 Usage:
   uv run python scripts/oracle_closing_rank.py --round 1 --quota "Open Seat Quota" \
@@ -22,7 +30,8 @@ from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
 
-from oracle_parse import CATEGORIES, COURSES, Allotment, OracleError, parse_allotments, squash
+from neet_mccparse.allotments import CATEGORIES, COURSES, Allotment, parse_allotments
+from neet_mccparse.text import OracleError, squash
 
 
 class AmbiguousInstituteError(OracleError):

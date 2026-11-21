@@ -21,6 +21,7 @@ members = [
     "neet-common",
     "neet-eval",
     "neet-ingest",
+    "neet-mccparse",
     "neet-predictor",
     "neet-retrieval",
     "neet-ui",
@@ -110,6 +111,7 @@ dependencies = [
     { name = "neet-common" },
     { name = "neet-eval" },
     { name = "neet-ingest" },
+    { name = "neet-mccparse" },
     { name = "neet-predictor" },
     { name = "neet-retrieval" },
     { name = "neet-ui" },
@@ -129,6 +131,7 @@ requires-dist = [
     { name = "neet-common", editable = "libs/common" },
     { name = "neet-eval", editable = "jobs/eval" },
     { name = "neet-ingest", editable = "jobs/ingest" },
+    { name = "neet-mccparse", editable = "libs/mccparse" },
     { name = "neet-predictor", editable = "services/predictor" },
     { name = "neet-retrieval", editable = "services/retrieval" },
     { name = "neet-ui", editable = "services/ui" },
@@ -659,10 +662,19 @@ version = "0.1.0"
 source = { editable = "jobs/ingest" }
 dependencies = [
     { name = "neet-common" },
+    { name = "neet-mccparse" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "neet-common", editable = "libs/common" }]
+requires-dist = [
+    { name = "neet-common", editable = "libs/common" },
+    { name = "neet-mccparse", editable = "libs/mccparse" },
+]
+
+[[package]]
+name = "neet-mccparse"
+version = "0.1.0"
+source = { editable = "libs/mccparse" }
 
 [[package]]
 name = "neet-predictor"

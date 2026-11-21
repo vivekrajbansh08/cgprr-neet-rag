@@ -5,6 +5,7 @@ description = "Private, locally hosted RAG assistant for NEET counselling, plus 
 requires-python = ">=3.11"
 dependencies = [
     "neet-common",
+    "neet-mccparse",
     "neet-retrieval",
     "neet-answer",
     "neet-predictor",
@@ -29,6 +30,7 @@ members = ["libs/*", "services/*", "jobs/*"]
 
 [tool.uv.sources]
 neet-common = { workspace = true }
+neet-mccparse = { workspace = true }
 neet-retrieval = { workspace = true }
 neet-answer = { workspace = true }
 neet-predictor = { workspace = true }

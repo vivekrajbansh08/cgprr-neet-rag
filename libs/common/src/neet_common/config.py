@@ -3,12 +3,18 @@
 Pass a Settings instance explicitly; no module-level singletons.
 """
 
+from pathlib import Path
+
 from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# Repository root (libs/common/src/neet_common/config.py -> four levels up). Used to find .env and
+# data/ regardless of the current directory.
+REPO_ROOT = Path(__file__).resolve().parents[4]
+
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=REPO_ROOT / ".env", extra="ignore")
 
     postgres_host: str = "localhost"
     postgres_host_port: int = 5432
@@ -21,3 +27,4 @@ class Settings(BaseSettings):
     llm_api_key: SecretStr = SecretStr("not-needed")
     llm_model: str = ""
     embed_model: str = ""
+    embed_dim: int = 1024

@@ -326,3 +326,29 @@ current round's closing rank.
    With a state filter, the predictor lists such institutes as "no seat-matrix state" rather than
    placing them.
 
+## 7. Parser independence (decision 2026-11-21)
+
+**Decision:** ingest reuses the oracle parser. The pdftotext + regex parsing that was written as
+an independent oracle now lives in one workspace package, `libs/mccparse` (`neet_mccparse`). Both
+`jobs/ingest` and the `scripts/oracle_*.py` CLIs import it.
+
+**What this costs.** The original plan was for ingest to use a *different* parser, so that two
+implementations agreeing would be evidence. With one shared parser, a parsing bug shows up
+identically in the database and in the oracle. A test comparing them would pass, and that
+agreement proves nothing about parsing. Comparing the DB against the oracle (or against the
+golden questions, whose values the oracle derived) only shows that **loading, SQL views and the
+closing-rank definition** are correct. It does not show that the PDFs were read correctly.
+
+**Why it is acceptable.** Parsing correctness rests on evidence that does not depend on the parser:
+
+| | Evidence | Independent of the parser because |
+|---|---|---|
+| a | **Seat-matrix reconciliation.** Round 1 allotments per cell vs seats in MCC's seat-matrix PDFs, over all matched cells; allotments > seats must be 0 or explained. | A different MCC document, with its own layout. A parser that drops, duplicates or mis-assigns rows breaks the counts. |
+| b | **Keyword-count reconciliation.** DB counts of "Fresh Allotted" / "Upgraded" allotments vs a plain grep of the pdftotext output; row counts vs gap-free SNo runs (R1, R2) and strictly increasing ranks. | A grep has no column logic. It catches rows the parser silently skips or misclassifies (the 7 dropped Round 3 rows in section 5.3 were caught this way). |
+| c | **Human eye checks.** `SPOTCHECK.md` in the golden folder: a person opens the PDF at file/page/SNo and reads the cell. | No software in the loop. |
+| d | **PDF re-extraction of cited lines.** For a random sample of closing-rank cells, re-run pdftotext on the stored file/page and confirm the stored rank appears on the stored line. | Checks every stored provenance pointer against the source, not against the parser's own output. |
+
+Re-run (a), (b) and (d) after every parser change (`uv run python -m neet_ingest.report`), and
+repeat (c) whenever a golden value is amended. If a future change needs stronger guarantees,
+reintroduce a second parser (e.g. pdfplumber word boxes) for cross-checking only.
+

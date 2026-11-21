@@ -28,5 +28,17 @@ jobs:
       - run: make migrate
       - run: make migrate   # second run must be a no-op
       - run: scripts/check_roles.sh
+      - name: 003_core created the tables and views; neet_reader can read them
+        run: |
+          set -a; source .env; set +a
+          PGPASSWORD="$POSTGRES_PASSWORD" psql -X -v ON_ERROR_STOP=1 -h localhost -p "$POSTGRES_HOST_PORT" \
+            -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "
+              SELECT count(*) FROM information_schema.tables WHERE table_schema = 'neet'
+                AND table_name IN ('source_file','institute','allotment','seat_matrix','chunk','ingest_run',
+                                   'closing_rank','closing_rank_cw_nri')" | grep -qx 8
+          PGPASSWORD="$NEET_READER_PASSWORD" psql -X -v ON_ERROR_STOP=1 -h localhost -p "$POSTGRES_HOST_PORT" \
+            -U neet_reader -d "$POSTGRES_DB" \
+            -c "SELECT count(*) FROM neet.closing_rank" -c "SELECT count(*) FROM neet.closing_rank_cw_nri" \
+            -c "SELECT count(*) FROM neet.chunk" -c "SELECT count(*) FROM neet.seat_matrix"
       - if: always()
         run: docker compose logs postgres

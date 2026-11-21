@@ -5,6 +5,7 @@ description = "CLI: raw MCC PDFs to Postgres with provenance (file, sha256, page
 requires-python = ">=3.11"
 dependencies = [
     "neet-common",
+    "neet-mccparse",
 ]
 
 [build-system]
