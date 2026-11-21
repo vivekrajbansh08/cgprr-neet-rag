@@ -19,10 +19,15 @@ The answer is split into sentences (at . ! ? followed by whitespace, and at newl
      closed ... is|was|of|at|: X") must equal the closing_rank of a source cited in the sentence.
   e. rule g: a sentence that states a cited source's closing rank also names its round and its
      allotment count.
-  f. the one code-generated exception: a sentence of the exact form
-     "Your AIR X is at or below|above the Round N closing rank C [S#] for this cell." passes only if
-     X equals the user's AIR extracted from the question, N and C match S#, and the relation is
-     arithmetically right (X <= C -> "at or below"). The model's own text never gets this pass.
+  f. the one code-generated exception: the sentence pair
+     "Yes. Your AIR X is at or better than the Round N closing rank C [S#], so in 2025 a candidate
+     with a rank like yours was allotted this cell." (X <= C) or
+     "No. Your AIR X is a larger number than the Round N closing rank C [S#], so in 2025 this cell was
+     fully allotted before reaching your rank." (X > C) passes only if X equals the user's AIR
+     extracted from the question, N and C match S#, the relation is arithmetically right, and the
+     "Yes."/"No." sentence right before it agrees. A bare "Yes."/"No." sentence anywhere else fails
+     (it would be an uncomputed answer to a rank question), and so does any other sentence that
+     opens as a verdict ("Yes, ...", "No, ...", "Sure, ...", "Unfortunately ...").
   h. a sentence that states any number must cite exactly one source (fail closed against swaps).
   g. any other sentence that compares "your rank / your AIR" (higher, lower, above, below, within ...)
      fails: rank comparisons are computed in code only.
@@ -89,9 +94,21 @@ def sentences(text: str) -> list[str]:
     return [s for s in out if s.strip()]
 
 
+_WITHIN = "is at or better than"
+_OUTSIDE = "is a larger number than"
+_WITHIN_TAIL = "so in 2025 a candidate with a rank like yours was allotted this cell."
+_OUTSIDE_TAIL = "so in 2025 this cell was fully allotted before reaching your rank."
 _COMPARE = re.compile(
-    rf"^Your AIR ({_NUM}) is (at or below|above) the Round ([1-3]) closing rank ({_NUM}) \[(S\d+)\] for this"
-    r" cell\.$"
+    rf"^Your AIR ({_NUM}) ({_WITHIN}|{_OUTSIDE}) the Round ([1-3]) closing rank ({_NUM}) \[(S\d+)\],"
+    rf" ({re.escape(_WITHIN_TAIL)}|{re.escape(_OUTSIDE_TAIL)})$"
+)
+_YES_NO = re.compile(r"^(Yes|No)[.!]?$", re.IGNORECASE)
+# A model sentence that opens as a verdict ("Yes, you can get this college", "No, this cell is out of
+# reach", "Unfortunately ...") answers a rank question without the code-built comparison.
+_VERDICT_OPENER = re.compile(
+    r"^\W*(?:(?:yes|no|yeah|yep|nope|sure|of\s+course|good\s+news|bad\s+news)\s*[,.!:;\u2013\u2014-]"
+    r"|(?:unfortunately|fortunately|luckily|sadly|definitely|certainly|absolutely|surely)\b)",
+    re.IGNORECASE,
 )
 _GUARANTEE = re.compile(
     r"\b(?:definitely|guaranteed|certainly|surely|assured)\b|\byou\s+will\s+(?:\w+\s+)?get\b"
@@ -195,6 +212,34 @@ def closing_claims(text: str) -> list[Decimal]:
     return out
 
 
+_CLAIM_BEFORE = re.compile(
+    rf"(?<![\d.,])({_NUM})\s+(?:is|was|were)\s+the\s+(?:\w+\s+){{0,3}}?(?:closing\s+(?:rank|AIR)|cut[\s-]?off)",
+    re.IGNORECASE,
+)
+_CLAIM_BREAK = re.compile(r"[?!]|\.\s|\b(?:my|I|me|mine)\b", re.IGNORECASE)
+
+
+def question_claims(question: str) -> list[Decimal]:
+    """Closing-rank / cut-off values the QUESTION asserts ("the closing rank was 7", "cut-off is
+    500", "500 was the cut-off"). Never the user's own AIR, and never a value reached across a
+    sentence break or first-person wording ("closing rank ...? My AIR is 20,100" asserts nothing)."""
+    text = masked(question)
+    own = [(a, b) for _, a, b in user_air_spans(question)]
+    out = []
+    for pat in (_CLAIM, _CLAIM_BEFORE):
+        for m in pat.finditer(text):
+            a, b = m.span(1)
+            if any(x <= a and b <= y for x, y in own):
+                continue
+            gap = text[m.start() : a] if pat is _CLAIM else text[b : m.end()]
+            if _CLAIM_BREAK.search(gap):
+                continue
+            val = to_decimal(m.group(1))
+            if val is not None:
+                out.append(val)
+    return out
+
+
 def user_air_spans(question: str) -> list[tuple[Decimal, int, int]]:
     """Every first-person AIR in the question: (value, start, end) of the number."""
     out = []
@@ -215,38 +260,52 @@ def extract_user_air(question: str) -> Decimal | None:
 def comparison_sentence(
     user_air_text: str, sid: str, round_: int, rank_text: str, air: Decimal, closing: Decimal
 ) -> str:
-    rel = "at or below" if air <= closing else "above"
+    """The code-built answer to "was my AIR within the closing rank": a Yes/No sentence first."""
+    if air <= closing:
+        verdict, rel, tail = "Yes.", _WITHIN, _WITHIN_TAIL
+    else:
+        verdict, rel, tail = "No.", _OUTSIDE, _OUTSIDE_TAIL
     return (
-        f"Your AIR {user_air_text} is {rel} the Round {round_} closing rank {rank_text} [{sid}] for"
-        + " this cell."
+        f"{verdict} Your AIR {user_air_text} {rel} the Round {round_} closing rank {rank_text}"
+        f" [{sid}], {tail}"
     )
 
 
-def _check_comparison(m: re.Match[str], by_id: dict[str, Source], user_air: Decimal | None) -> list[str]:
-    air, rel, rnd, closing, sid = (
+def _check_comparison(
+    m: re.Match[str], by_id: dict[str, Source], user_air: Decimal | None, verdict: str | None
+) -> list[str]:
+    air, rel, rnd, closing, sid, tail = (
         to_decimal(m.group(1)),
         m.group(2),
         int(m.group(3)),
         to_decimal(m.group(4)),
         m.group(5),
+        m.group(6),
     )
     src = by_id.get(sid)
     if src is None:
         return [f"comparison cites unknown [{sid}]"]
     errs = []
+    within = rel == _WITHIN
+    if within != (tail == _WITHIN_TAIL):
+        errs.append("comparison sentence mixes the within and outside wording")
+    if verdict is None or (verdict == "yes") != within:
+        errs.append("comparison sentence is not preceded by its matching Yes./No. sentence")
     if user_air is None or air != user_air:
         errs.append("comparison sentence states an AIR that is not the user's AIR from the question")
     if rnd != src.cell.round or closing != src.cell.closing_rank:
         errs.append(f"comparison sentence does not match [{sid}]")
-    elif air is not None and (rel == "at or below") != (air <= src.cell.closing_rank):
+    elif air is not None and within != (air <= src.cell.closing_rank):
         errs.append("comparison sentence states the wrong relation")
     return errs
 
 
-def _check_sentence(sentence: str, by_id: dict[str, Source], user_air: Decimal | None) -> list[str]:
+def _check_sentence(
+    sentence: str, by_id: dict[str, Source], user_air: Decimal | None, verdict: str | None = None
+) -> list[str]:
     s = sentence.strip()
     if m := _COMPARE.match(s):
-        return _check_comparison(m, by_id, user_air)
+        return _check_comparison(m, by_id, user_air, verdict)
     errors = []
     if _USER_COMPARE.search(s):
         errors.append("the model may not compare the user's rank with a figure (code adds that sentence)")
@@ -300,9 +359,18 @@ def verify(
     cited = cited_ids(answer)
     if require_citation and not any(c in by_id for c in cited):
         errors.append("the answer cites no source")
-    for sentence in sentences(answer):
-        if sentence.strip():
-            errors += _check_sentence(sentence, by_id, user_air)
+    parts = [x.strip() for x in sentences(answer) if x.strip()]
+    for i, sentence in enumerate(parts):
+        yn = _YES_NO.match(sentence)
+        nxt = parts[i + 1] if i + 1 < len(parts) else ""
+        if yn:
+            if not _COMPARE.match(nxt):
+                errors.append("a bare Yes./No. is allowed only before the code-built comparison sentence")
+            continue
+        if _VERDICT_OPENER.match(sentence) and not _COMPARE.match(sentence):
+            errors.append("a sentence may not open as a yes/no verdict (code adds the comparison)")
+        prev = _YES_NO.match(parts[i - 1]) if i > 0 else None
+        errors += _check_sentence(sentence, by_id, user_air, prev.group(1).lower() if prev else None)
     for m in _GUARANTEE.finditer(answer):
         errors.append(f"guarantee language is not allowed: {m.group(0)!r}")
     for line in leaked_lines(answer, prompt_text):

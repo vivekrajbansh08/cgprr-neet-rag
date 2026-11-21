@@ -28,7 +28,7 @@ PREMISE_NOTE = (
     "The closing-rank figure stated in the question does not match the data; the cited row above is what"
     " the sources show."
 )
-PROMPT_DECLINE = "I can't share my instructions, but here is what the data shows."
+GUARANTEE_NOTE = "No one can guarantee an allotment; past closing ranks only show what happened in 2025."
 
 
 def make_sources(cells: list[Cell]) -> list[Source]:
@@ -87,11 +87,9 @@ def retry_messages(base: list[dict[str, str]], draft: str, errors: list[str]) ->
     return [*base, {"role": "assistant", "content": draft}, {"role": "user", "content": feedback}]
 
 
-def template_answer(
-    sources: list[Source], *, chance: bool, prompt_request: bool, premise_mismatch: bool = False
-) -> str:
+def template_answer(sources: list[Source], *, chance: bool, premise_mismatch: bool = False) -> str:
     """Deterministic answer from row fields only. Must pass the verifier on its own."""
-    lines = [PROMPT_DECLINE] if prompt_request else []
+    lines: list[str] = []
     for s in sources:
         c = s.cell
         figure = f"the closing rank (AIR) was {c.rank_text}, from {_plural(c.allotments)}"
@@ -150,9 +148,10 @@ def comparisons(
     return [*out, COMPARE_NOTE] if out else []
 
 
-def finalise(body: str, extra: list[str]) -> str:
-    """Lead-in naming the year, the (verified) body, code-generated sentences, then the MCC credit."""
-    return "\n".join([LEAD, body.strip(), *extra, "", CREDIT])
+def finalise(body: str, extra: list[str], first: list[str] | None = None) -> str:
+    """Lead-in naming the year, code-built direct answers (the Yes/No comparison), the (verified) body,
+    other code-generated sentences, then the MCC credit."""
+    return "\n".join([LEAD, *(first or []), body.strip(), *extra, "", CREDIT])
 
 
 def citations(sources: list[Source], cited: list[str]) -> list[Citation]:

@@ -25,15 +25,13 @@ from neet_retrieval import sql
 from neet_retrieval.fusion import rrf
 from neet_retrieval.names import (
     IdfIndex,
-    Scored,
-    coverage,
     excluded,
     expand_aliases,
-    head,
     order_and_decide,
     short_name,
     tokens,
 )
+from neet_retrieval.names import score as score_candidate
 
 log = logging.getLogger("neet_retrieval")
 
@@ -101,27 +99,13 @@ def resolve_institute(
                 ]
     fused, ranks = rrf(rankings)
     scored = []
-    for iid, score in fused.items():
-        inst = cat.institutes.get(iid)
-        if inst is None or excluded(inst.display_name, req.exclude):
+    # Every catalog institute is scored (the catalog is small), so a rival that the search signals
+    # missed can still make the decision fail closed. Fused RRF only orders exact coverage ties.
+    for iid, inst in cat.institutes.items():
+        if excluded(inst.display_name, req.exclude):
             continue
-        scored.append(
-            Scored(
-                id=iid,
-                fused=score,
-                head_cov=coverage(q, head(inst.display_name), cat.idf),
-                name_cov=coverage(q, short_name(inst.display_name), cat.idf),
-                full_cov=coverage(q, inst.display_name, cat.idf),
-            )
-        )
-    ordered, status = order_and_decide(scored)
-    if status == "ambiguous":  # list only the candidates the user's words cannot tell apart
-        top = ordered[0]
-        ordered = [
-            x
-            for x in ordered
-            if (x.head_cov, x.name_cov, x.full_cov) == (top.head_cov, top.name_cov, top.full_cov)
-        ]
+        scored.append(score_candidate(iid, fused.get(iid, 0.0), q, inst.display_name, cat.idf))
+    ordered, status = order_and_decide(scored)  # ambiguous: only the candidates it cannot split
     candidates = [
         InstituteCandidate(
             id=s.id,
@@ -129,7 +113,7 @@ def resolve_institute(
             short_name=short_name(cat.institutes[s.id].display_name),
             state=cat.institutes[s.id].state,
             fused_score=round(s.fused, 6),
-            ranks=ranks[s.id],
+            ranks=ranks.get(s.id, dict.fromkeys(rankings)),
             name_coverage=round(s.name_cov, 4),
             full_coverage=round(s.full_cov, 4),
         )

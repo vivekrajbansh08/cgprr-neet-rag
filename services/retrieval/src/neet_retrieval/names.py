@@ -67,6 +67,25 @@ ALIASES = {
 }
 
 
+# Generic abbreviations MCC prints inside names, normalised on both sides (query and catalog), so
+# "Govt." = "Government", "Dental Sce." = "Dental Sciences". Word-level only; no institute names.
+ABBREVIATIONS = {
+    "govt": "government",
+    "gov": "government",
+    "sce": "sciences",
+    "sci": "sciences",
+    "science": "sciences",
+    "med": "medical",
+    "coll": "college",
+    "inst": "institute",
+    "univ": "university",
+    "hosp": "hospital",
+    "hospt": "hospital",
+    "res": "research",
+    "edu": "education",
+}
+
+
 def expand_aliases(query: str) -> str:
     q = re.sub(r"\s+", " ", query.lower())
     for long, short in ALIASES.items():
@@ -75,7 +94,8 @@ def expand_aliases(query: str) -> str:
 
 
 def tokens(text: str) -> list[str]:
-    return [t for t in _TOKEN.findall(text.lower()) if t not in STOPWORDS and not t.isdigit()]
+    out = [ABBREVIATIONS.get(t, t) for t in _TOKEN.findall(text.lower())]
+    return [t for t in out if t not in STOPWORDS and not t.isdigit()]
 
 
 def short_name(display_name: str, max_parts: int = 3) -> str:
@@ -95,6 +115,57 @@ def short_name(display_name: str, max_parts: int = 3) -> str:
 def head(display_name: str) -> str:
     """The first comma part: the institute's own name, without campus city or address."""
     return display_name.split(",", 1)[0]
+
+
+# MCC prints "<name>,<address>": the name's own commas are followed by a space ("AIIMS, Jodhpur"),
+# the join to the address is not (",BASNI ...") or has a space before it ("AIIMS Bathinda ,Jodhpur").
+_NAME_JOIN = re.compile(r"\s+,|,(?=\S)")
+
+
+_ADDRESS_WORDS = frozenset(
+    {
+        "road", "rd", "lane", "nagar", "street", "st", "po", "post", "near", "opp", "district", "dist",
+        "pin", "campus", "sector", "plot", "block", "floor", "office", "dean", "principal", "the",
+        "admission", "cell", "phase", "marg", "salai", "village", "via", "taluk", "tehsil",
+    }
+)  # fmt: skip
+
+
+def _city_like(part: str, name: str) -> bool:
+    """A short comma part right after a one-part name is its campus city ("GOVT. MEDICAL COLLEGE,
+    AURANGABAD"), unless it restates the name or reads like an address line."""
+    words = re.findall(r"[a-z]+", part.lower())
+    first = re.findall(r"[a-z]+", name.lower())[:1]
+    return (
+        0 < len(words) <= 3
+        and not any(ch.isdigit() for ch in part)
+        and words[:1] != first
+        and not any(w in _ADDRESS_WORDS for w in words)
+    )
+
+
+def name_part(display_name: str) -> str:
+    """The institute's name with its campus city, without the address ("AIIMS, Jodhpur")."""
+    m = _NAME_JOIN.search(display_name)
+    if not m:
+        return short_name(display_name).strip()
+    name = display_name[: m.start()].strip()
+    if "," not in name:  # MCC sometimes joins name and city with a tight comma too
+        nxt = display_name[m.end() :].split(",", 1)[0].strip()
+        if _city_like(nxt, name):
+            name = f"{name}, {nxt}"
+    return name
+
+
+def name_parts(display_name: str) -> list[str]:
+    return [p.strip() for p in name_part(display_name).split(",") if p.strip()]
+
+
+def core_name(display_name: str) -> str:
+    """Head plus the last comma part of the name: the campus city when the head is generic
+    ("Kasturba Medical College, Manipal Univ., Mangalore" -> "Kasturba Medical College Mangalore")."""
+    parts = name_parts(display_name)
+    return " ".join(parts[:1] + parts[-1:]) if len(parts) > 1 else (parts[0] if parts else "")
 
 
 class IdfIndex(BaseModel):
@@ -123,7 +194,13 @@ def _has(token: str, bag: set[str]) -> bool:
         return True
     if len(token) < 5:
         return False
-    return any(len(b) >= 5 and SequenceMatcher(None, token, b).ratio() >= FUZZY_MIN for b in bag)
+    for b in bag:
+        if len(b) < 5 or abs(len(b) - len(token)) > 2:  # ratio >= 0.85 needs near-equal lengths
+            continue
+        sm = SequenceMatcher(None, token, b)
+        if sm.quick_ratio() >= FUZZY_MIN and sm.ratio() >= FUZZY_MIN:
+            return True
+    return False
 
 
 def coverage(query: str, text: str, idf: IdfIndex) -> float:
@@ -136,6 +213,27 @@ def coverage(query: str, text: str, idf: IdfIndex) -> float:
     return hit / total if total > 0 else 0.0
 
 
+def core_coverage(query: str, display_name: str, idf: IdfIndex) -> float:
+    """Coverage by the head and the campus city. A middle name part the user typed in full (every
+    word of "Manipal Univ.") explains those words itself, so they are not read as the city: "Kasturba
+    Medical College Manipal Univ" names the university both campuses share, not the Manipal campus."""
+    q = list(dict.fromkeys(tokens(query)))
+    parts = name_parts(display_name)
+    if not q or not parts:
+        return 0.0
+    qset = set(q)
+    head_bag = set(tokens(parts[0]))
+    city_bag = set(tokens(parts[-1])) if len(parts) > 1 else set()
+    middle: set[str] = set()
+    for m in parts[1:-1]:
+        mt = set(tokens(m))
+        if mt and mt <= qset:
+            middle |= mt
+    total = sum(idf.idf(t) for t in q)
+    hit = sum(idf.idf(t) for t in q if t in middle or _has(t, head_bag) or _has(t, city_bag))
+    return hit / total if total > 0 else 0.0
+
+
 def excluded(display_name: str, exclude: Iterable[str]) -> bool:
     bag = set(tokens(short_name(display_name)))
     return any(t in bag for e in exclude for t in tokens(e))
@@ -144,33 +242,69 @@ def excluded(display_name: str, exclude: Iterable[str]) -> bool:
 class Scored(BaseModel):
     id: int
     fused: float
-    head_cov: float  # coverage over head(): the institute's own name
-    name_cov: float  # coverage over short_name(): name plus campus city, no address
-    full_cov: float  # coverage over the whole display string
+    name_cov: float  # coverage over name_part(): the whole name with campus city, no address
+    core_cov: float  # core_coverage(): head plus campus city
+    head_cov: float  # coverage over head(): the first comma part
+    full_cov: float  # coverage over the whole display string, address included
+    head_in_query: bool = False  # every word of head() was typed: a generic head ("Govt Medical College")
+
+
+def score(iid: int, fused: float, query: str, display_name: str, idf: IdfIndex) -> Scored:
+    return Scored(
+        id=iid,
+        fused=fused,
+        name_cov=coverage(query, name_part(display_name), idf),
+        core_cov=core_coverage(query, display_name, idf),
+        head_cov=coverage(query, head(display_name), idf),
+        full_cov=coverage(query, display_name, idf),
+        head_in_query=_head_in_query(query, display_name),
+    )
+
+
+def _head_in_query(query: str, display_name: str) -> bool:
+    h = set(tokens(head(display_name)))
+    return bool(h) and h <= set(tokens(query))
 
 
 Decision = Literal["resolved", "ambiguous", "not_found"]
 
 
-def _key(s: Scored) -> tuple[float, float, float]:
-    return (round(s.head_cov, 6), round(s.name_cov, 6), round(s.full_cov, 6))
+def key(s: Scored) -> tuple[float, float, float]:
+    """Name-only ranking key: address text never decides a winner."""
+    return (round(s.name_cov, 6), round(s.core_cov, 6), round(s.head_cov, 6))
+
+
+def _tie(a: tuple[float, ...], b: tuple[float, ...]) -> bool:
+    return all(abs(x - y) < COVERAGE_TIE for x, y in zip(a, b, strict=True))
 
 
 def order_and_decide(items: list[Scored]) -> tuple[list[Scored], Decision]:
-    """Sort candidates and decide 'resolved' | 'ambiguous' | 'not_found'.
+    """Sort candidates and decide 'resolved' | 'ambiguous' | 'not_found'. Fails closed.
 
-    Order: head coverage, name coverage, full coverage (a word in the institute's own name beats the
-    same word in its address), then fused RRF score. The best must reach MIN_FOUND_COVERAGE (full) to
-    count as found. It is ambiguous whenever the runner-up ties on all three coverages.
+    Order: name-part, core-name (head + campus city), head coverage, then full coverage and fused RRF
+    score. The best must reach MIN_FOUND_COVERAGE (full) to count as found. Another found candidate
+    is a rival (and the result ambiguous) when
+      - it ties the best on the name key, or
+      - it ties on name-part and core-name and its own head is made only of words the user typed
+        (a generic head such as "Government Medical College": the head key must not pick a winner), or
+      - the best's name does not explain the whole query (the address did part of the work) and the
+        rival covers at least as much of the query in its full string.
+    Address words can only send a question to clarify, never pick a winner. When ambiguous, the
+    returned list is the best candidate plus its rivals.
     """
-    ranked = sorted(items, key=lambda s: (*(-x for x in _key(s)), -s.fused, s.id))
+    ranked = sorted(items, key=lambda s: (*(-x for x in key(s)), -round(s.full_cov, 6), -s.fused, s.id))
     found = [s for s in ranked if s.full_cov >= MIN_FOUND_COVERAGE]
     if not found:
         return ranked, "not_found"
     top = found[0]
-    if len(found) > 1:
-        nxt = found[1]
-        tie = all(abs(a - b) < COVERAGE_TIE for a, b in zip(_key(top), _key(nxt), strict=True))
-        if tie:
-            return found, "ambiguous"
+    name_explains_all = top.name_cov >= 1 - COVERAGE_TIE
+    rivals = [
+        s
+        for s in found[1:]
+        if _tie(key(s), key(top))
+        or (_tie(key(s)[:2], key(top)[:2]) and s.head_in_query)
+        or (not name_explains_all and s.full_cov >= top.full_cov - COVERAGE_TIE)
+    ]
+    if rivals:
+        return [top, *rivals], "ambiguous"
     return found, "resolved"

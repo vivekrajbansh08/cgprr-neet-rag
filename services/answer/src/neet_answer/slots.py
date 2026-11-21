@@ -234,9 +234,39 @@ def ground_institute_text(text: str | None, question: str) -> str | None:
     return out or None
 
 
+_INSTITUTION_NOUN = re.compile(
+    r"\b(?:college|institute|institution|school|university|univ|academy|hospital|sciences|"
+    r"centre|center|AIIMS|JIPMER|ESIC)\b",
+    re.IGNORECASE,
+)
+_NAMED_PLACE = re.compile(
+    r"\b(?:at|in|of|for|from)\s+((?:[A-Z][\w.&'()-]*)(?:\s+(?:[A-Z][\w.&'()-]*|of|and|&|the))*)"
+)
+_LEADING_PREP = re.compile(r"^(?:(?:at|in|of|for|from|the)\s+)+", re.IGNORECASE)
+_QUOTA_WORD = re.compile(r"\bquota\b", re.IGNORECASE)
+
+
+def institute_from_question(question: str) -> str | None:
+    """Deterministic fallback when the extractor returns no institute: the LAST capitalised phrase
+    after at / in / of / for / from that contains an institution noun ("at Hogwarts School of X").
+    Phrases that name a quota ("ESIC Insured Persons quota") are skipped. None when unsure: a clarify
+    is better than refusing a real institute as not in the sources."""
+    found = []
+    for m in _NAMED_PLACE.finditer(question):
+        phrase = re.sub(r"(?:\s+(?:of|and|&|the))+$", "", m.group(1))
+        if _QUOTA_WORD.search(phrase) or _QUOTA_WORD.match(question, m.end(1) + 1):
+            continue
+        cleaned = clean_institute_text(phrase)
+        cleaned = _LEADING_PREP.sub("", cleaned or "").strip(" ,;-")
+        if cleaned and _INSTITUTION_NOUN.search(cleaned) and len(cleaned.split()) >= 2:
+            found.append(cleaned)
+    return found[-1] if found else None
+
+
 def normalise(raw: RawSlots, question: str) -> Slots:
     text = question
     institute = ground_institute_text(clean_institute_text(raw.institute_text), question)
+    institute = institute or institute_from_question(question)
     if institute and institute in text:
         text = text.replace(institute, " ")  # institute words never count as slots
     course = detect_course(text)

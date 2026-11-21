@@ -95,8 +95,9 @@ without it. No change is keyed to question text or ids.
   model). Test: `test_chance_question_always_gets_the_limits_note_from_code`.
 - Known limits (documented in `neet_common.verify`): number words are not detected; "17,95" is
   read as 1795.
-- Not changed (outside this agent's area): golden-looking figures in `libs/mccparse` /
-  `jobs/ingest` docstrings ("OP NO ..."), reported for their owner.
+- Golden-looking figures in the `libs/mccparse` docstrings ("OP NO 48") were changed to an
+  invented "OP NO 37" (`seat_matrix.py`, `seat_cells.py`). (Corrected 2026-11-21: this line
+  previously said they were not changed.)
 
 Runs: 20261121T064124Z, 20261121T064257Z, 20261121T064720Z (final): 14/14 scored passed, 4 pending.
 
@@ -138,3 +139,114 @@ Each change has a test that failed before it. No question-specific code.
   comparison sentence covers it. Test: `test_lead_in_and_no_self_compare_line_with_code_comparison`.
 
 Run 20261121T070217Z (final): 14/14 scored passed, 4 pending.
+
+## 2026-11-21: unseen-probe fixes (Step 4.1)
+
+Found by an independent check with 12 unseen questions (not golden questions). Each fix is general
+code; no institute name or question text is special-cased. Integration tests use the exact probe
+texts (`tests/test_answer_integration.py::test_probe_*`, skip without DB/LLM).
+
+- [unseen-probe] False ambiguity from address text ("AIIMS Jodhpur" vs AIIMS Bathinda, whose
+  address contains "Jodhpur Romana"). The resolver now scores the name part first: the display
+  string is cut at the MCC name/address join (a comma with no space after it, or a space before
+  it), and the "core name" is the head plus the last comma part of the name (the campus city).
+  Order: core, head, name part, then full string (address only breaks ties). Ambiguous only when
+  all four tie. Bare "Kasturba Medical College" and "JIPMER" stay ambiguous; "AIIMS Jodhpur",
+  "JIPMER Puducherry", "Kasturba Medical College Manipal" resolve. Expectation change:
+  "Kasturba Manipal" (previously asserted ambiguous) now resolves to the Manipal campus. Tests:
+  `test_city_in_another_institutes_address_is_not_ambiguous`,
+  `test_campus_city_resolves_when_head_is_shared`, `test_shared_name_without_city_stays_ambiguous`,
+  `test_resolver_flags_shared_names`, `test_probe_b_name_not_address`.
+- [unseen-probe] Comparison wording. The code-built sentence now answers directly: "No. Your AIR X
+  is a larger number than the Round N closing rank C [S#], so in 2025 this cell was fully allotted
+  before reaching your rank." / "Yes. Your AIR X is at or better than ... so in 2025 a candidate
+  with a rank like yours was allotted this cell." It comes first, right after the lead-in, then
+  the "not a prediction" note, then the body. Verifier rule f updated: exact form, arithmetic
+  check, the Yes/No sentence must precede it and agree; a bare "Yes."/"No." anywhere else fails
+  (stricter than before). Tests: `test_outside_comparison_reads_as_no`,
+  `test_comparison_verdict_must_match_and_bare_yes_no_fails`,
+  `test_multi_cell_comparisons_are_checked_per_cell`, `test_comparison_within_reads_yes_and_comes_first`,
+  `test_probe_g_comparison_says_no_first`.
+- [unseen-probe] False-premise check fired on the user's own AIR ("closing rank ...? My AIR is
+  20,100"). New `neet_common.verify.question_claims`: only values the question asserts as a
+  cut-off ("the closing rank was X", "cut-off is X", "X was the closing rank"); never a user-AIR
+  span, never across ?/!/sentence end or first-person words. Tests:
+  `test_question_claims_only_for_asserted_cutoffs`, `test_users_own_air_is_not_a_false_premise`,
+  `test_probe_h_own_air_is_not_a_premise`, `test_probe_d_false_premise_not_affirmed`.
+- [unseen-probe] Requests for the system prompt / instructions are refused with a fixed decline
+  that offers NEET-UG 2025 counselling-data questions, before any LLM call. Counselling "rules"
+  questions are not caught. Tests: `test_prompt_leak_requests`,
+  `test_counselling_rules_are_not_prompt_requests`, `test_prompt_request_is_refused_before_any_llm_call`,
+  `test_probe_i_prompt_leak_refused`.
+- [unseen-probe] Guarantee intent (surely, definitely, guarantee, will I get, sure shot ...): every
+  reply (answered, clarify, refused) starts with "No one can guarantee an allotment; past closing
+  ranks only show what happened in 2025." An answered reply is re-verified in full with it. Tests:
+  `test_guarantee_intent`, `test_guarantee_question_starts_with_limits_on_every_status`,
+  `test_probe_j_guarantee_limits_first`.
+- [unseen-probe] PG guard matches course terms only (MD/MS/MDS/DNB/DM/MCh, NEET-PG, "PG
+  course/seat/degree/counselling", "postgraduate course" ...), not institute names such as "Post
+  Graduate Institute of Dental Sciences". Tests: `test_pg_guard_ignores_institute_names_without_catalog`,
+  `test_pg_guard_refuses_course_terms`, `test_probe_f_pg_refused`, `test_probe_l_pg_named_institute_is_not_pg`.
+- [unseen-probe] A clearly named institute that the slot extractor drops (it returned null for a
+  fictional name) is recovered deterministically (capitalised phrase after at/in/of/for/from with
+  an institution noun) and sent to the resolver, so an unknown institute is refused as not in the
+  sources instead of a "which institute?" clarify. Tests: `test_institute_fallback_from_question`,
+  `test_unknown_named_institute_is_refused_even_if_extractor_returns_none`,
+  `test_probe_k_unknown_institute_refused`.
+
+### Review of the unseen-probe fixes (same day)
+
+- [review] Resolver redesigned to fail closed. 152 of 600 display names join a one-part name and
+  its city with a tight comma ("GOVT. MEDICAL COLLEGE,AURANGABAD,..."), so the city fell out of
+  the name part and "Government Medical College Aurangabad" resolved to a different Aurangabad
+  college. Now: a short, non-address comma part after a one-part name is taken as its city;
+  generic abbreviations are normalised on both sides (Govt=Government, Sce/Sci=Sciences,
+  Med=Medical, Inst=Institute, Univ=University, Hosp/Hospt=Hospital, ...); every catalog
+  institute is scored, not only the search hits. Ranking key is name-part, core (head + city),
+  head; it resolves only with no rival: a rival ties the key, or ties name-part and core while its
+  own head is entirely words the user typed (a generic head), or, when the best's name does not
+  explain the whole query, covers at least as much of the query in its full string. Address text
+  can only lead to a clarify. Tests: `test_tight_comma_city_and_govt_abbreviation_resolve_to_the_right_college`,
+  `test_generic_head_with_state_word_is_ambiguous_not_a_winner`,
+  `test_address_can_only_send_to_clarify_never_pick_a_winner`, `test_resolver_flags_shared_names`.
+- [review] A middle name part the user typed in full ("Manipal Univ.") is not read as the campus
+  city: "Kasturba Medical College Manipal Univ" is ambiguous; "... Manipal" still resolves. Tests:
+  `test_middle_part_typed_in_full_is_not_read_as_the_city`, `test_resolver_flags_shared_names`.
+- [review] Rule d: the probe integration tests no longer contain MCC figures; expected cells are
+  read from Postgres as neet_reader at test time (`_db_cells`), independent of the services.
+- [review] PG guard: "PG" / "post graduate" / "postgraduation" count as PG intent except when
+  followed by institute-name words (Institute, Inst, College, Med, Medical Education ...); MD / MS /
+  DNB / ... are case-insensitive (dots on either side never count, so "S.M.S." and "Ms." pass).
+  Test: `test_pg_guard_refuses_course_terms`, `test_pg_guard_ignores_institute_names_without_catalog`.
+- [review] Verifier: a sentence that opens as a verdict ("Yes, ...", "No, ...", "Sure, ...",
+  "Unfortunately ...", "Definitely ...") fails unless it is the code-built comparison pair. Tests:
+  `test_model_verdict_openers_fail`, `test_fixed_no_one_sentence_is_not_a_verdict`.
+- [review] Institute fallback takes the last institution phrase, skips quota phrases, strips
+  leading prepositions, and returns None when unsure. Test:
+  `test_institute_fallback_skips_quota_phrases_and_prefers_last`.
+- [review] Guarantee detector: "100% sure" / "100% chance" now match. Test: `test_guarantee_intent`.
+- [review] Removed the unreachable prompt-decline branch in `_generate` / `template_answer`; "your
+  guidelines for choosing a college" is no longer read as a prompt request. Test:
+  `test_counselling_rules_are_not_prompt_requests`.
+- Known limits (resolver): "Manipal College of Dental Sciences Manipal" is a clarify (both campuses
+  have "Manipal" in their own name; a repeated query word counts once). A query made of a name
+  part that is split from its city by a tight comma inside a multi-part name ("INST.OF
+  MED.SCIENCES, BHU,VARANASI") is a clarify, not a resolve.
+
+- Open after the final review and audit (not fixed in Step 4.1; all fail safe except where noted):
+  - [review] An acronym that matches only address text ("MAMC" vs a "MAMC Complex" address) can
+    still resolve to that institute when no candidate matches by name. Seen as a refusal for the
+    wrong institute; should become not_found or clarify when the winner's name coverage is 0.
+  - [review] A UG question that merely mentions PG ("After MBBS I want to do PG. ...") is refused
+    as pg_course.
+  - [review] The verdict-opener rule checks only sentence openings; model sentences such as "You
+    can get this college [S1]." or "Your chances look good [S1]." still pass after the code-built
+    comparison. Needs a second-person outcome check when a user AIR is present.
+  - [review] "Government Medical College Nagpur" is a clarify (a rival name with extra words the
+    user did not type ties on coverage); a regression from the fail-closed tie rule.
+  - [review] Lowercase "ms"/"dm" in an unknown institute name ("MS Ramaiah") gives the PG refusal
+    instead of "not in sources". Dotted initials ("B.J.", "G.S.") do not match plain "BJ", "GS".
+  - [audit] Institute names starting with "Pt." (and other unlisted abbreviations) split the
+    template sentence in `sentences()`, so the round is "not named" and the answer is refused
+    although the cell exists. Fix: extend `_ABBREV_END` or keep institute names from breaking
+    sentences; pin "PT. B.D. SHARMA PGIMS".

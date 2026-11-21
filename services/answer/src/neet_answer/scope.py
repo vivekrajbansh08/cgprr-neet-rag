@@ -27,8 +27,18 @@ _YEAR = re.compile(
     r"((?:19|20)\d{2})(?![.,]?\d)",
     re.IGNORECASE,
 )
-_PG_ACRONYM = re.compile(r"(?<![\w.])(?:MD|MS|MDS|DM|MCh|M\.Ch\.?|DNB|M\.D\.|M\.S\.)(?![\w.])")
-_PG_PHRASE = re.compile(r"neet[\s-]*pg|post[\s-]*graduat|\bPG\b|super[\s-]*speciali", re.IGNORECASE)
+# Case-insensitive ("md general medicine"); dots on either side never count, so "S.M.S." and "Ms."
+# are not courses.
+_PG_ACRONYM = re.compile(r"(?<![\w.])(?:MD|MS|MDS|DM|MCh|M\.Ch\.?|DNB|M\.D\.|M\.S\.)(?![\w.])", re.IGNORECASE)
+# PG intent: "PG" / "post graduate" / "postgraduation" anywhere, EXCEPT where the words are part of
+# an institute name ("Post Graduate Institute of ...", "Inst of PG Med Edu", "Institute of
+# Postgraduate Medical Education"). Catalog names are exempted separately in check_pg_scope.
+_PG_PHRASE = re.compile(
+    r"neet[\s-]*pg\b|super[\s-]*speciali"
+    r"|\b(?:PG|post[\s-]*graduat\w*)\b(?!\s+(?:institute|inst\b|college|centre|center|school|med\b|"
+    r"medical\s+(?:education|institute|college)|dental\s+(?:institute|college)))",
+    re.IGNORECASE,
+)
 _OTHER_COURSE = re.compile(
     r"\b(?:BAMS|BHMS|BUMS|BSMS|BVSc|B\.?\s?V\.?Sc|B\.?\s?Pharm|BPT|AYUSH)\b", re.IGNORECASE
 )
@@ -41,9 +51,27 @@ _ROUND_NUM = re.compile(
     re.IGNORECASE,
 )
 _ROUND_OTHER = re.compile(r"\bstray\b|\bmop[\s-]*up\b|\bspecial\s+round\b", re.IGNORECASE)
+_PROMPT_NOUN = (
+    r"(?:system\s+|hidden\s+|initial\s+|developer\s+|internal\s+|secret\s+|original\s+)?"
+    r"(?:prompts?|instructions?|guidelines|rules|directives|configuration|context\s+window)"
+)
 _PROMPT_REQUEST = re.compile(
-    r"\b(?:system|hidden|initial|developer)\s+(?:prompt|instructions?|message)\b"
-    r"|\byour\s+(?:prompt|instructions|rules)\b|\bprint\s+your\b",
+    r"\b(?:system|hidden|initial|developer|secret)\s+(?:prompt|instructions?|message)\b"
+    r"|\byour\s+(?:prompt|instructions)\b"
+    r"|\b(?:print|show|reveal|repeat|tell|give|output|display|dump|share|recite|list|copy|paste|"
+    r"what\s+(?:are|is|were))\s+(?:me\s+)?(?:all\s+)?(?:of\s+)?(?:your|the\s+(?:system|hidden|initial))\s+"
+    + _PROMPT_NOUN
+    # "your guidelines for choosing a college" asks for advice, not for the assistant's prompt
+    + r"\b(?!\s+(?:for|on|about|of|regarding|to|when|in)\b)",
+    re.IGNORECASE,
+)
+PROMPT_REFUSAL = (
+    "I can't share my instructions. I can answer questions about NEET-UG 2025 MCC counselling data,"
+    " such as the closing rank for a course, institute, quota, category and round."
+)
+_GUARANTEE_ASK = re.compile(
+    r"\b(?:surely|sure[\s-]*shot|definitely|definite|guarantee[ds]?|guaranteed|certainly|for\s+sure|"
+    r"assured?)\b|\b100\s*%|\bwill\s+i\s+(?:\w+\s+){0,2}?get\b|\bam\s+i\s+(?:sure|certain)\b",
     re.IGNORECASE,
 )
 _EXCLUSION = re.compile(
@@ -159,8 +187,14 @@ def check_course_scope(question: str, institute_text: str | None) -> ScopeResult
 
 
 def asks_for_prompt(question: str) -> bool:
-    """The question asks the assistant to reveal its instructions (that part is always declined)."""
+    """The question asks the assistant to reveal its own instructions / system prompt. "What are the
+    rules for upgradation" is about counselling rules, not a request for the assistant's prompt."""
     return _PROMPT_REQUEST.search(question) is not None
+
+
+def asks_guarantee(question: str) -> bool:
+    """The question wants a promise of an allotment ("Will I surely get ...", "guaranteed seat")."""
+    return _GUARANTEE_ASK.search(question) is not None
 
 
 def exclusion_terms(question: str, institute_text: str | None) -> list[str]:
