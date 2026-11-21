@@ -267,6 +267,6 @@ I used Claude Code (Anthropic) as a coding assistant to write and test much of t
 
 ## Screenshots
 
-Screenshots: see the demo video.
+Demo video: https://youtu.be/ZhSCbwnk7AU
 
 Screenshots are not committed because they show MCC figures.
