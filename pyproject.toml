@@ -27,6 +27,7 @@ package = false
 
 [tool.uv.workspace]
 members = ["libs/*", "services/*", "jobs/*"]
+exclude = ["services/web"]
 
 [tool.uv.sources]
 neet-common = { workspace = true }

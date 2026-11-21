@@ -21,6 +21,7 @@ from neet_common.llm import LLMClient
 from neet_common.schemas import (
     CellsRequest,
     CellsResponse,
+    InstituteInfo,
     InstituteNames,
     ResolveRequest,
     ResolveResponse,
@@ -120,6 +121,17 @@ def institute_names(deps: DepsDep) -> InstituteNames:
     return InstituteNames(
         names=sorted({i.display_name.split(",", 1)[0].strip() for i in cat.institutes.values()})
     )
+
+
+@app.get("/institutes/{institute_id}")
+def institute(institute_id: int, deps: DepsDep) -> InstituteInfo:
+    try:
+        info = core.institute_info(deps.get_catalog(), institute_id)
+    except (psycopg.Error, PoolTimeout) as exc:
+        raise _db_errors(exc) from exc
+    if info is None:
+        raise HTTPException(status_code=404, detail="no such institute")
+    return info
 
 
 @app.post("/cells")

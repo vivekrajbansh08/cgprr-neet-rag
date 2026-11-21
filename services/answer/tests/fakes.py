@@ -12,6 +12,7 @@ from neet_common.schemas import (
     CellsRequest,
     CellsResponse,
     InstituteCandidate,
+    InstituteInfo,
     ResolveRequest,
     ResolveResponse,
     Source,
@@ -101,6 +102,20 @@ class FakeRetrieval:
         self._cells = cells or []
         self.resolve_requests: list[ResolveRequest] = []
         self.cell_requests: list[CellsRequest] = []
+        self._institutes: dict[int, InstituteInfo] = {
+            c.id: InstituteInfo(id=c.id, display_name=c.display_name, short_name=c.short_name, state=c.state)
+            for c in resolve.candidates
+        }
+        self.institute_requests: list[int] = []
+
+    def add_institute(self, cand: InstituteCandidate) -> None:
+        self._institutes[cand.id] = InstituteInfo(
+            id=cand.id, display_name=cand.display_name, short_name=cand.short_name, state=cand.state
+        )
+
+    def institute(self, institute_id: int) -> InstituteInfo | None:
+        self.institute_requests.append(institute_id)
+        return self._institutes.get(institute_id)
 
     def resolve(self, req: ResolveRequest) -> ResolveResponse:
         self.resolve_requests.append(req)

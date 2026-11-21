@@ -262,3 +262,23 @@ def test_probe_l_pg_named_institute_is_not_pg(pipeline: Pipeline):
         assert _ok(r, P["l"]) and all(c.course == "BDS" for c in r.citations)
     else:
         assert "has no" in r.answer
+
+
+PT_BDS = ("PT. B.D. SHARMA PGIMS, ROHTAK,", "MBBS", "All India", "Open")
+PT_Q = (
+    "What was the Round 1 closing rank for MBBS at Pt. B.D. Sharma PGIMS Rohtak, All India quota, Open"
+    " category?"
+)
+
+
+def test_probe_abbreviated_institute_name_is_answered(pipeline: Pipeline, settings: Settings):
+    """Step 5 [audit]: "PT." in the institute name used to split the sentence and lose its round."""
+    expected = {c for c in _db_cells(settings, *PT_BDS) if c[0] == 1}
+    assert len(expected) == 1
+    (rnd, closing, n), *_ = expected
+    r = pipeline.ask(PT_Q)
+    assert r.status == "answered" and _ok(r, PT_Q)
+    assert _cites(r) == expected
+    allot = f"{n} allotment" + ("" if n == 1 else "s")
+    line = next(s for s in r.answer.split("\n") if closing in s)
+    assert f"Round {rnd}" in line and allot in line

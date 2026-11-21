@@ -95,7 +95,7 @@ def health() -> dict[str, str]:
 @app.post("/ask")
 def ask(req: AskRequest, deps: DepsDep) -> AskResponse:
     t0 = time.perf_counter()
-    resp = deps.pipeline.ask(req.question)
+    resp = deps.pipeline.ask(req.question, institute_id=req.institute_id)
     latency = round(time.perf_counter() - t0, 3)
     resp.debug.latency_s = latency
     resp.debug.model = deps.model
@@ -104,6 +104,7 @@ def ask(req: AskRequest, deps: DepsDep) -> AskResponse:
     deps.reqlog.write(
         {
             "question": req.question,
+            "institute_id": req.institute_id,
             "status": resp.status,
             "slots": resp.debug.slots,
             "sources": [s.cell.id for s in resp.sources],

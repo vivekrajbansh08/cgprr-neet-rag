@@ -27,6 +27,24 @@ services:
       timeout: 5s
       retries: 10
 
+  # --- Web UI (production build behind nginx): `docker compose --profile web up -d --build web`.
+  # The answer (:8002) and predictor (:8003) services run natively on the host; nginx proxies to them.
+  # REQUIRES Docker Desktop (macOS/Windows): there, host.docker.internal reaches services bound to the
+  # host's 127.0.0.1. On Linux it does not (host-gateway is the bridge IP, and the services bind to
+  # 127.0.0.1 only). On Linux use `make web` (Vite dev server), or run this image with
+  # `network_mode: host`, `listen 127.0.0.1:8080` and proxy_pass to 127.0.0.1. Never widen the binds.
+  web:
+    profiles: ["web"]
+    build: ./services/web
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${WEB_HOST_PORT:-8080}:8080"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./data/raw/MANIFEST.md:/evidence/MANIFEST.md:ro
+      - ./eval/results/score_table.md:/evidence/score_table.md:ro
+
   # --- GPU target (Linux + NVIDIA only): `docker compose --profile gpu up`. To be filled in later. ---
   # vllm:
   #   profiles: ["gpu"]

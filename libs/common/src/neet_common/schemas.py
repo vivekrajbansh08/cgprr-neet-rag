@@ -41,6 +41,15 @@ class InstituteNames(BaseModel):
     names: list[str]
 
 
+class InstituteInfo(BaseModel):
+    """One catalog institute, looked up by id (GET /institutes/{id}) to pin a user's choice."""
+
+    id: int
+    display_name: str
+    short_name: str
+    state: str | None
+
+
 class CellsRequest(BaseModel):
     institute_id: int
     round: int | None = Field(default=None, ge=1, le=3)
@@ -104,6 +113,15 @@ class SearchResponse(BaseModel):
 class AskRequest(BaseModel):
     question: str = Field(min_length=1, max_length=2000)
     debug: bool = False  # true: include failed drafts and raw LLM slots in debug.trace (eval runner)
+    # A catalog institute the user picked (e.g. from clarify_options): skips institute resolution only.
+    institute_id: int | None = None
+
+
+class ClarifyOption(BaseModel):
+    """One institute the user can pick after an institute-ambiguity clarify."""
+
+    institute_id: int
+    label: str  # readable name part with its city (no address)
 
 
 class Source(BaseModel):
@@ -153,3 +171,5 @@ class AskResponse(BaseModel):
     citations: list[Citation]
     sources: list[Source]
     debug: AskDebug
+    clarify_options: list[ClarifyOption] = Field(default_factory=list)  # institute ambiguity only
+    guarantee_note: bool = False  # true: the answer starts with the fixed guarantee-limits sentence

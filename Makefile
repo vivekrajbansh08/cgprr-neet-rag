@@ -1,4 +1,4 @@
-.PHONY: up migrate ingest index report serve stop eval bench ui test lint
+.PHONY: web web-build web-check up migrate ingest index report serve stop eval bench ui test lint
 
 up:
 	@echo "TODO: up (docker compose up -d postgres)"
@@ -35,3 +35,12 @@ test:
 
 lint:
 	uv run ruff check . && uv run ruff format --check .
+
+web:
+	cd services/web && npm run dev
+
+web-build:
+	cd services/web && npm ci && npm run build
+
+web-check:
+	cd services/web && npm run contrast && npx playwright test

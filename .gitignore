@@ -40,3 +40,10 @@ eval/golden/.locked
 
 # Raw eval runs (answers contain MCC figures; only score_table.md is committed)
 eval/results/runs/
+
+# Web UI build output and self-check screenshots (screenshots show MCC figures; never committed)
+services/web/node_modules/
+services/web/dist/
+services/web/test-results/
+services/web/playwright-report/
+docs/screenshots/

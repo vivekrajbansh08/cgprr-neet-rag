@@ -19,7 +19,16 @@ from typing import Any, Literal
 
 from neet_common.llm import ChatResult, LLMError
 from neet_common.safety import looks_like_instruction
-from neet_common.schemas import AskDebug, AskResponse, Cell, CellsRequest, ResolveRequest, Source
+from neet_common.schemas import (
+    AskDebug,
+    AskResponse,
+    Cell,
+    CellsRequest,
+    ClarifyOption,
+    InstituteInfo,
+    ResolveRequest,
+    Source,
+)
 from neet_common.verify import extract_user_air, question_claims, verify
 
 from neet_answer import compose
@@ -91,6 +100,7 @@ class Pipeline:
         debug: dict[str, Any],
         sources: list[Source] | None = None,
         cited: list[str] | None = None,
+        options: list[ClarifyOption] | None = None,
     ) -> AskResponse:
         srcs = sources or []
         trace = {k: debug.pop(k) for k in _TRACE_KEYS if k in debug}
@@ -100,6 +110,7 @@ class Pipeline:
             citations=compose.citations(srcs, cited or []),
             sources=srcs,
             debug=AskDebug(**debug, trace=trace or None),
+            clarify_options=options or [],
         )
 
     def _record_llm(self, debug: dict[str, Any], res: ChatResult) -> None:
@@ -107,15 +118,17 @@ class Pipeline:
             {"completion_tokens": res.completion_tokens, "seconds": round(res.seconds, 3)}
         )
 
-    def ask(self, question: str) -> AskResponse:
-        r = self._ask(question)
+    def ask(self, question: str, institute_id: int | None = None) -> AskResponse:
+        """Answer `question`. `institute_id` pins a catalog institute the user picked (for example from
+        clarify_options): it replaces institute resolution only; everything else runs as normal."""
+        r = self._ask(question, institute_id)
         if not asks_guarantee(question):
             return r
         # Guarantee intent: every reply starts with the fixed limits sentence. An answered reply is
         # re-verified in full with it, so the prefix never bypasses the citation verifier.
         text = compose.GUARANTEE_NOTE + "\n" + r.answer
         if r.status != "answered":
-            return r.model_copy(update={"answer": text})
+            return r.model_copy(update={"answer": text, "guarantee_note": True})
         check = verify(
             text,
             r.sources,
@@ -124,7 +137,7 @@ class Pipeline:
             user_air=extract_user_air(question),
         )
         if check.ok:
-            return r.model_copy(update={"answer": text})
+            return r.model_copy(update={"answer": text, "guarantee_note": True})
         log.error("guarantee-prefixed answer failed the verifier: %s", check.errors)
         return r.model_copy(
             update={
@@ -132,10 +145,11 @@ class Pipeline:
                 "answer": compose.GUARANTEE_NOTE + "\nI can't give a verified answer from the sources.",
                 "citations": [],
                 "sources": [],
+                "guarantee_note": True,
             }
         )
 
-    def _ask(self, question: str) -> AskResponse:
+    def _ask(self, question: str, institute_id: int | None = None) -> AskResponse:
         debug: dict[str, Any] = {"template": False}
         if asks_for_prompt(question):  # deterministic, before any LLM call
             debug["scope"] = "prompt_request"
@@ -161,7 +175,10 @@ class Pipeline:
         debug["raw_slots"] = raw.model_dump()
         debug["slots"] = slots.model_dump()
         chance = slots.intent in ("admission_chance", "advice") or _CHANCE.search(question) is not None
-        if not _specific(slots.institute_text):
+        named = _specific(slots.institute_text)
+        if institute_id is not None and not named:  # no institute in the question: the pin names it
+            return self._pinned_answer(question, institute_id, slots, debug, chance=chance)
+        if not named:
             if chance:
                 return self._limits(debug)
             return self._reply(
@@ -170,7 +187,7 @@ class Pipeline:
                 " the college (and its city), plus the quota, category and round if you know them.",
                 debug,
             )
-        return self._data_answer(question, slots, debug, chance=chance)
+        return self._data_answer(question, slots, debug, chance=chance, pin=institute_id)
 
     def _limits(self, debug: dict[str, Any]) -> AskResponse:
         text = compose.limits_answer()
@@ -182,8 +199,11 @@ class Pipeline:
         return self._reply("answered", text, debug)
 
     def _data_answer(
-        self, question: str, slots: Slots, debug: dict[str, Any], *, chance: bool
+        self, question: str, slots: Slots, debug: dict[str, Any], *, chance: bool, pin: int | None = None
     ) -> AskResponse:
+        """Resolve the institute named in the question. A pinned id is used only when it is the
+        resolved institute or one of the ambiguous candidates; otherwise it is ignored, so a pin never
+        answers for an institute other than the one the question names."""
         inst_text = slots.institute_text or ""  # grounded: only words the user typed
         try:
             res = self.retrieval.resolve(
@@ -196,23 +216,65 @@ class Pipeline:
             "status": res.status,
             "candidates": [(c.id, c.short_name) for c in res.candidates[:3]],
         }
+        if pin is not None:
+            allowed = (
+                {c.id for c in res.candidates}
+                if res.ambiguous
+                else ({res.resolved_id} if res.resolved_id is not None else set())
+            )
+            picked = next((c for c in res.candidates if c.id == pin and c.id in allowed), None)
+            if picked is not None:
+                debug["resolve"]["pinned"] = pin
+                return self._cells_answer(question, slots, debug, picked.id, picked.short_name, chance=chance)
+            debug["resolve"]["pin_ignored"] = pin
+            log.warning("pinned institute %s is not the institute named in the question", pin)
         if res.ambiguous:
-            names = "; ".join(c.short_name for c in res.candidates[:4])
+            shown = res.candidates[:4]
+            names = "; ".join(c.short_name for c in shown)
             return self._reply(
                 "clarify",
                 f'"{inst_text}" matches more than one institute in the data: {names}. Which one do you'
                 " mean? I never combine figures from different institutes.",
                 debug,
+                options=[ClarifyOption(institute_id=c.id, label=c.short_name) for c in shown],
             )
         if res.resolved_id is None or not res.candidates:
             msg = f"{inst_text} is not in the indexed NEET-UG 2025 MCC sources, so I can't give a figure"
             msg += " for it."
             return self._reply("refused", msg, debug)
         inst = res.candidates[0]
+        return self._cells_answer(question, slots, debug, inst.id, inst.short_name, chance=chance)
+
+    def _pinned_answer(
+        self, question: str, institute_id: int, slots: Slots, debug: dict[str, Any], *, chance: bool
+    ) -> AskResponse:
+        """The user picked a catalog institute by id: validate it exists, then answer as normal."""
+        try:
+            info: InstituteInfo | None = self.retrieval.institute(institute_id)
+        except RetrievalError as exc:
+            debug["error"] = str(exc)
+            return self._reply("refused", UNAVAILABLE, debug)
+        debug["resolve"] = {"status": "pinned", "institute_id": institute_id, "found": info is not None}
+        if info is None:
+            return self._reply(
+                "refused", "That institute is not in the indexed NEET-UG 2025 MCC sources.", debug
+            )
+        return self._cells_answer(question, slots, debug, info.id, info.short_name, chance=chance)
+
+    def _cells_answer(
+        self,
+        question: str,
+        slots: Slots,
+        debug: dict[str, Any],
+        inst_id: int,
+        inst_name: str,
+        *,
+        chance: bool,
+    ) -> AskResponse:
         try:
             fetched = self.retrieval.cells(
                 CellsRequest(
-                    institute_id=inst.id,
+                    institute_id=inst_id,
                     quota=slots.quota,
                     course=slots.course,
                     allotted_category=slots.category,
@@ -226,9 +288,9 @@ class Pipeline:
         in_round = [c for c in cells if not slots.rounds or c.round in slots.rounds]
         if not in_round:
             other = sorted({c.round for c in cells})
-            return self._reply("refused", compose.no_cell_message(slots, inst.short_name, other), debug)
+            return self._reply("refused", compose.no_cell_message(slots, inst_name, other), debug)
         if len(in_round) > MAX_SOURCES or fetched.truncated:
-            return self._narrow(in_round, inst.short_name, debug)
+            return self._narrow(in_round, inst_name, debug)
         return self._generate(question, compose.make_sources(in_round), debug, chance=chance)
 
     def _suspicious(self, cell: Cell) -> bool:

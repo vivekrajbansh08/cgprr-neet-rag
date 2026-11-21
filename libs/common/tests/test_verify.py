@@ -10,6 +10,7 @@ from neet_common.verify import (
     extract_user_air,
     numbers_in,
     question_claims,
+    sentences,
     verify,
 )
 
@@ -299,3 +300,158 @@ def test_fixed_no_one_sentence_is_not_a_verdict():
         "In Round 1 the closing rank was 1234, from 7 allotments [S1]."
     )
     assert check(text).ok
+
+
+# ---- Step 5: model-written verdicts anywhere in a sentence ------------------------------------
+OK_LINE = "In Round 1 the closing rank was 1234, from 7 allotments [S1]. "
+
+
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        "With this rank you can get this college [S1].",
+        "Based on the data you could get a seat here [S1].",
+        "So you will get MBBS here [S1].",
+        "Looking at it, you'll get this seat [S1].",
+        "On these figures you are eligible for this seat [S1].",
+        "Then you qualify for this college [S1].",
+        "Overall you have a good chance here [S1].",
+        "Overall you have a fair chance here [S1].",
+        "It seems you can secure this seat [S1].",
+        "It seems you'd get this seat [S1].",
+        "In 2025 you would get this seat [S1].",
+        "So your chances are good here [S1].",
+        "So your chances are high here [S1].",
+        "Here you stand a good chance [S1].",
+        "Here you can make it [S1].",
+        "Here you may get a seat [S1].",
+        "Here you might get a seat [S1].",
+        "Here YOU CAN GET a seat [S1].",
+        "Here you have a very good chance [S1].",
+        "Here your chances look good [S1].",
+    ],
+)
+def test_model_verdict_phrases_fail_anywhere_in_a_sentence(sentence):
+    r = check(OK_LINE + sentence)
+    assert not r.ok
+    assert any("verdict" in e for e in r.errors)
+
+
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        "This compares your rank with past data only; it is not a prediction.",
+        "No one can guarantee an allotment; past closing ranks only show what happened in 2025.",
+        "These are past per-round figures, not a prediction: cut-offs change from year to year with"
+        " seats, choices and rounds, so no outcome can be promised.",
+        "You can check the official MCC notices for the next round.",
+        "If you tell me your AIR, category and quota, I can look up past closing ranks.",
+    ],
+)
+def test_non_verdict_sentences_still_pass(sentence):
+    assert check(OK_LINE + sentence).ok
+
+
+def test_code_comparison_pair_still_passes_with_verdict_rule():
+    for air, word in (("900", "Yes."), ("9000", "No.")):
+        pair = comparison_sentence(air, "S1", 1, "1234", Decimal(air), Decimal(1234))
+        assert pair.startswith(word)
+        assert check(pair + "\n" + OK_LINE, user_air=Decimal(air)).ok
+
+
+# ---- Step 5: abbreviation-aware sentence splitting --------------------------------------------
+@pytest.mark.parametrize(
+    "inst",
+    [
+        "PT. B.D. SHARMA PGIMS, ROHTAK",
+        "Pt. B.D. Sharma PGIMS, Rohtak",
+        "GOVT. MEDICAL COLLEGE, AKOLA",
+        "Pt. Jawahar Lal Nehru Govt. Med. College, Chamba",
+        "Alpha Inst. of Med. Sci. Univ. Coll., Northtown",
+        "DR. S.N. MEDICAL COLLEGE, JODHPUR",
+        "St. John Medical College, Northtown",
+        "Smt. K. Alpha Lt. Beta DIST. Hospital, Northtown",
+        "Alpha Medical College, BURDWAN TOWN. PURBA BARDHAMAN",
+    ],
+)
+def test_institute_name_abbreviations_do_not_split_a_sentence(inst):
+    s = src("S1", 1, "1234", 7)
+    s.cell.institute = inst
+    line = (
+        f"Round 1, MBBS, {inst}, All India, Open category: the closing rank (AIR) was 1234,"
+        " from 7 allotments [S1]."
+    )
+    assert verify(line, [s], prompt_text=PROMPT).ok
+    assert sentences(line) == [line]
+
+
+def test_real_sentence_ends_still_split():
+    text = "In Round 1 the closing rank was 1234, from 7 allotments [S1]. The next round re-allots seats."
+    assert sentences(text) == [
+        "In Round 1 the closing rank was 1234, from 7 allotments [S1].",
+        "The next round re-allots seats.",
+    ]
+    assert sentences("It is in Goa. Seats vary.") == ["It is in Goa.", "Seats vary."]
+
+
+def test_rejoin_never_hides_a_verdict_opener():
+    r = check("The college is run by the Govt. Yes, a seat is open here [S1].\n" + OK_LINE)
+    assert not r.ok
+
+
+# ---- review of Step 5: structural reader + outcome rule -------------------------------------------
+REVIEW_VERDICTS = [
+    "You will most likely get a seat here [S1].",
+    "You'd make the cut here [S1].",
+    "A seat is likely for you [S1].",
+    "You should be able to get a seat [S1].",
+    "You're very likely to be allotted this seat [S1].",
+    "You have every chance here [S1].",
+    "Your odds are good [S1].",
+    "You'll be admitted [S1].",
+    "You can expect a seat [S1].",
+    "You'd most likely land it [S1].",
+    "You are well placed for this seat [S1].",
+    "A seat here is realistic for you [S1].",
+    "you are very much eligible [S1].",
+    "you are very much eligible",
+    "This seat is safe for you [S1].",
+    "Yours is within reach [S1].",
+]
+
+
+@pytest.mark.parametrize("sentence", REVIEW_VERDICTS)
+def test_reader_outcome_sentences_fail(sentence):
+    r = check(OK_LINE + sentence)
+    assert not r.ok
+    assert any("verdict" in e for e in r.errors)
+
+
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        "You can check the MCC notices for the next round.",
+        "You can check the official MCC website for schedules [S1].",
+        "If you tell me your AIR, category, quota and the colleges you are considering, I can look up"
+        " their past closing ranks for you.",
+        "I can't make that decision for you, and I give no recommendation either way.",
+    ],
+)
+def test_reader_sentences_without_an_outcome_word_pass(sentence):
+    assert check(OK_LINE + sentence).ok
+
+
+def test_merge_after_a_caps_word_fails_closed():
+    a = "In Round 1 the closing rank was 3456, from 5 allotments [S1] for MBBS. It closed at 4567 [S2]."
+    assert not check(a, TWO).ok
+
+
+def test_data_labels_are_not_outcome_words():
+    assert check("You can use these rows: in Round 1 the closing rank was 1234, from 7 allotments [S1].").ok
+    assert check(OK_LINE + "You asked about the Open Seat Quota rows [S1].").ok
+    assert not check(OK_LINE + "You asked about a seat you could get [S1].").ok
+
+
+def test_cut_off_is_a_data_word_but_make_the_cut_is_a_verdict():
+    assert check(OK_LINE + "Your question asks for the cut-off [S1].").ok
+    assert not check(OK_LINE + "You'd make the cut [S1].").ok

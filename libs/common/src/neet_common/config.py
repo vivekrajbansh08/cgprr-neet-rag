@@ -32,4 +32,5 @@ class Settings(BaseSettings):
     # Service URLs (services talk over HTTP; they never import each other). 127.0.0.1 only.
     retrieval_url: str = "http://127.0.0.1:8001"
     answer_url: str = "http://127.0.0.1:8002"
+    predictor_url: str = "http://127.0.0.1:8003"
     llm_timeout_s: float = 120.0

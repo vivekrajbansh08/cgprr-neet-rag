@@ -1,0 +1,144 @@
+@import "tailwindcss";
+@import "@fontsource-variable/inter/index.css";
+@import "@fontsource/source-serif-4/400.css";
+@import "@fontsource/source-serif-4/600.css";
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * The only colours in this app. Every utility class maps to one of these variables.
+ * Light: the public record. Dark: charcoal black.
+ */
+:root {
+  --background: #ffffff;
+  --surface: #fafafa;
+  --muted: #e4e8ef;
+  --primary: #142644;
+  --primary-fg: #ffffff;
+  --foreground: #212224;
+  --text-2: #525358;
+  --label: #717378; /* spec #727479 gave 4.48:1 on --surface; -1 per channel, same hue */
+  --placeholder: #a2a2a3;
+  --border: #ecedef;
+  --input: #e2e3e7;
+  --disabled: #d2d3d6;
+  color-scheme: light;
+}
+
+.dark {
+  --background: #141414;
+  --surface: #1c1c1d;
+  --muted: #26272a;
+  --primary: #e4e8ef;
+  --primary-fg: #142644;
+  --foreground: #ededee;
+  --text-2: #b4b5b8;
+  --label: #8e9095;
+  --placeholder: #6b6c70;
+  --border: #2a2b2e;
+  --input: #34353a;
+  --disabled: #3a3b3f;
+  color-scheme: dark;
+}
+
+@theme inline {
+  /* Reset Tailwind's default palette: only the project tokens exist. */
+  --color-*: initial;
+  --color-transparent: transparent;
+  --color-current: currentColor;
+
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-muted: var(--muted);
+  --color-primary: var(--primary);
+  --color-primary-fg: var(--primary-fg);
+  --color-foreground: var(--foreground);
+  --color-text-2: var(--text-2);
+  --color-label: var(--label);
+  --color-placeholder: var(--placeholder);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-disabled: var(--disabled);
+
+  /* shadcn aliases, mapped onto the same tokens */
+  --color-primary-foreground: var(--primary-fg);
+  --color-muted-foreground: var(--text-2);
+  --color-card: var(--background);
+  --color-card-foreground: var(--foreground);
+  --color-popover: var(--background);
+  --color-popover-foreground: var(--foreground);
+  --color-secondary: var(--muted);
+  --color-secondary-foreground: var(--foreground);
+  --color-accent: var(--muted);
+  --color-accent-foreground: var(--foreground);
+  --color-ring: var(--primary);
+
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Source Serif 4", ui-serif, Georgia, serif;
+
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+  --radius-xl: 14px;
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+  html,
+  body {
+    background: var(--background);
+    color: var(--foreground);
+  }
+  body {
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    font-feature-settings: "tnum" 1;
+  }
+  ::placeholder {
+    color: var(--placeholder);
+    opacity: 1;
+  }
+  :focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+  }
+  ::selection {
+    background: var(--muted);
+    color: var(--foreground);
+  }
+}
+
+/* Small-caps label used for metadata. */
+.label-caps {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--label);
+  font-weight: 500;
+}
+
+/* --- Motion: state only. Disabled entirely under prefers-reduced-motion. --- */
+@keyframes neet-fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes neet-border-travel {
+  to { --neet-angle: 360deg; }
+}
+@property --neet-angle {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}

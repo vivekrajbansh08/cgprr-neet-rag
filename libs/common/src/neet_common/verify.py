@@ -39,6 +39,7 @@ Known limits: number words ("fifty-seven") are not detected; "17,95" is read as 
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from decimal import Decimal, InvalidOperation
 
 from pydantic import BaseModel
@@ -69,27 +70,49 @@ _CLAIM = re.compile(
     rf"[^\d\n]{{0,150}}?\b(?:is|was|were|of|at|=|:)\s*(?:an?\s+)?(?:AIR\s*)?({_NUM})",
     re.IGNORECASE,
 )
-_SENTENCE = re.compile(r"(?<=[.!?])\s+|\n+")
-# A fragment ending like this is an abbreviation ("S.M.S.", "Univ.", "Dr."), not the end of a sentence.
-_ABBREV_END = re.compile(
-    r"(?:\b[A-Za-z]\.|\b(?:Dr|Mr|Mrs|Ms|St|Univ|Govt|Inst|Med|Edu|No|Pvt|Ltd|Hosp|Hospt|Coll|Res|Sci|Dept)\.)$"
+_YES_NO = re.compile(r"^(Yes|No)[.!]?$", re.IGNORECASE)
+# A model sentence that opens as a verdict ("Yes, you can get this college", "No, this cell is out of
+# reach", "Unfortunately ...") answers a rank question without the code-built comparison.
+_VERDICT_OPENER = re.compile(
+    r"^\W*(?:(?:yes|no|yeah|yep|nope|sure|of\s+course|good\s+news|bad\s+news)\s*[,.!:;\u2013\u2014-]"
+    r"|(?:unfortunately|fortunately|luckily|sadly|definitely|certainly|absolutely|surely)\b)",
+    re.IGNORECASE,
 )
-
-
+_SPLIT = re.compile(r"(?<=[.!?])\s+")
+# A fragment ending like this is an abbreviation, not the end of a sentence: a known abbreviation in
+# any case ("Pt.", "PT.", "Govt.", "Univ."), an initial or a run of initials ("B.D.", "S.N.", "K."),
+# or a short all-capitals token ("DIST.", "TOWN.", "MED.") as MCC writes them inside names.
+_ABBREV_WORDS = (
+    "Dr|Mr|Mrs|Ms|Smt|Shri|Sri|Lt|Pt|St|Univ|Uni|Govt|Inst|Med|Edu|No|Pvt|Ltd|Hosp|Hospt|Hos|Coll|"
+    "Res|Sci|Scie|Sce|Dept|Dist|Distt|Opp|Soc|Nr|Rd"
+)
+_ABBREV_END = re.compile(rf"(?:\b(?:[A-Za-z]\.)+|(?i:\b(?:{_ABBREV_WORDS})\.)|(?<![\w.])[A-Z]{{2,4}}\.)$")
+# A part that opens like this starts a new statement even after an abbreviation; verdict openers are
+# never glued onto the previous sentence (that would hide them from the opener check).
 _NEW_STATEMENT = re.compile(r"(?:In\s+)?(?:Rounds?\b|R[1-3]\b|\[|The\b|This\b|Your\b)")
 
 
-def sentences(text: str) -> list[str]:
-    """Split at . ! ? + whitespace and at newlines, re-joining splits made after an abbreviation."""
+def sentences(text: str, keep: Sequence[str] = ()) -> list[str]:
+    """Split at . ! ? + whitespace and at newlines. A split is undone when it falls inside one of the
+    `keep` strings (the cited rows' institute names) or right after an abbreviation, unless the next
+    part opens a new statement or a verdict."""
     out: list[str] = []
     for line in text.split("\n"):
-        parts = re.split(r"(?<=[.!?])\s+", line)
-        for part in parts:
-            rejoin = out and out[-1] != "\n" and _ABBREV_END.search(out[-1])
-            if rejoin and not _NEW_STATEMENT.match(part):
-                out[-1] = out[-1] + " " + part
+        protected = [
+            (m.start(), m.start() + len(k)) for k in keep if k for m in re.finditer(re.escape(k), line)
+        ]
+        pos, prev_end, first = 0, 0, True
+        cuts = [(m.start(), m.end()) for m in _SPLIT.finditer(line)] + [(len(line), len(line))]
+        for a, b in cuts:
+            part = line[pos:a]
+            inside = any(x < pos < y for x, y in protected)
+            abbrev = not first and _ABBREV_END.search(out[-1])
+            opener = _NEW_STATEMENT.match(part) or _VERDICT_OPENER.match(part) or _YES_NO.match(part)
+            if not first and (inside or (abbrev and not opener)):
+                out[-1] = out[-1] + line[prev_end:pos] + part
             else:
                 out.append(part)
+            first, prev_end, pos = False, a, b
         out.append("\n")  # hard boundary
     return [s for s in out if s.strip()]
 
@@ -102,14 +125,42 @@ _COMPARE = re.compile(
     rf"^Your AIR ({_NUM}) ({_WITHIN}|{_OUTSIDE}) the Round ([1-3]) closing rank ({_NUM}) \[(S\d+)\],"
     rf" ({re.escape(_WITHIN_TAIL)}|{re.escape(_OUTSIDE_TAIL)})$"
 )
-_YES_NO = re.compile(r"^(Yes|No)[.!]?$", re.IGNORECASE)
-# A model sentence that opens as a verdict ("Yes, you can get this college", "No, this cell is out of
-# reach", "Unfortunately ...") answers a rank question without the code-built comparison.
-_VERDICT_OPENER = re.compile(
-    r"^\W*(?:(?:yes|no|yeah|yep|nope|sure|of\s+course|good\s+news|bad\s+news)\s*[,.!:;\u2013\u2014-]"
-    r"|(?:unfortunately|fortunately|luckily|sadly|definitely|certainly|absolutely|surely)\b)",
+# An admission verdict written by the model, anywhere in a sentence ("... so you can get this seat",
+# "you have a good chance", "your chances are high"). Only the code-built Yes/No pair may give one.
+_ADVERB = r"(?:(?:definitely|surely|easily|probably|likely|still|also|certainly|comfortably|very|"
+_ADVERB += r"quite|really|most|realistically)\s+)?"
+_MODAL = r"(?:'ll|'d|\s+(?:can|could|will|would|may|might|should|shall|can't|cannot|can\s+not|won't|"
+_MODAL += r"wouldn't|couldn't|may\s+not|might\s+not|will\s+not|would\s+not|could\s+not))"
+_ODDS = r"(?:good|fair|high|great|strong|decent|reasonable|excellent|realistic|bright|promising|low|"
+_ODDS += r"slim|poor|little|no|small|real)"
+_VERDICT_PHRASE = re.compile(
+    rf"\byou{_MODAL}\s+{_ADVERB}(?:get|secure|obtain|land|grab|bag|make\s+it)\b"
+    rf"|\byou(?:'re|'ll\s+be|'d\s+be|\s+are|{_MODAL}\s+be)\s+{_ADVERB}(?:not\s+)?(?:eligible|qualified)\b"
+    r"|\byou(?:\s+\w+)?\s+qualify\b"
+    rf"|\byou(?:'ve\s+got|\s+have(?:\s+got)?|\s+stand)\s+(?:an?\s+)?{_ADVERB}{_ODDS}\s+chances?\b"
+    rf"|\byour\s+chances?\s+(?:are|is|look|looks|seem|seems|appear|appears)\s+{_ADVERB}{_ODDS}\b",
     re.IGNORECASE,
 )
+# Structural backstop for the phrase list: a model sentence that addresses the reader AND names an
+# admission outcome is a verdict, however it is worded ("a seat is likely for you", "your odds are
+# good"). Only the code-built comparison pair (checked before this rule) may do that.
+_READER = re.compile(r"\byou(?:r|rs|'re|'d|'ll|'ve)?\b", re.IGNORECASE)
+_OUTCOME = re.compile(
+    r"\b(?:get|gets|getting|got|seats?|allot\w*|admi\w*|chances?|odds|likely|likelihood|eligib\w*|"
+    r"qualif\w*|cut(?![\s-]?offs?\b)|make\s+it|land\w*|secur\w*|realistic\w*|placed|expect\w*|reach\w*|within|safe\w*)\b",
+    re.IGNORECASE,
+)
+
+
+# Data labels, not outcomes: an allotment count and quota names ("Open Seat Quota", "Paid Seats Quota").
+_DATA_LABEL = re.compile(rf"{_NUM}\s+allotments?\b|\bseats?\s+quota\b|\ballotted\s+category\b", re.IGNORECASE)
+
+
+def _reader_outcome(sentence: str) -> bool:
+    text = _DATA_LABEL.sub(" ", sentence)
+    return bool(_READER.search(text) and _OUTCOME.search(text))
+
+
 _GUARANTEE = re.compile(
     r"\b(?:definitely|guaranteed|certainly|surely|assured)\b|\byou\s+will\s+(?:\w+\s+)?get\b"
     r"|\byou'll\s+get\b|\bsure\s+to\s+get\b|\b100\s*%\s*(?:sure|chance)",
@@ -307,6 +358,9 @@ def _check_sentence(
     if m := _COMPARE.match(s):
         return _check_comparison(m, by_id, user_air, verdict)
     errors = []
+    plain = s.replace("\u2019", "'")
+    if _VERDICT_PHRASE.search(plain) or _reader_outcome(plain):
+        errors.append("the model may not give an admission verdict (only the code-built Yes/No may)")
     if _USER_COMPARE.search(s):
         errors.append("the model may not compare the user's rank with a figure (code adds that sentence)")
     sids = cited_ids(s)
@@ -359,7 +413,7 @@ def verify(
     cited = cited_ids(answer)
     if require_citation and not any(c in by_id for c in cited):
         errors.append("the answer cites no source")
-    parts = [x.strip() for x in sentences(answer) if x.strip()]
+    parts = [x.strip() for x in sentences(answer, [s.cell.institute for s in sources]) if x.strip()]
     for i, sentence in enumerate(parts):
         yn = _YES_NO.match(sentence)
         nxt = parts[i + 1] if i + 1 < len(parts) else ""

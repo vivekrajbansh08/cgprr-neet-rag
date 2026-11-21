@@ -242,6 +242,7 @@ texts (`tests/test_answer_integration.py::test_probe_*`, skip without DB/LLM).
   - [review] The verdict-opener rule checks only sentence openings; model sentences such as "You
     can get this college [S1]." or "Your chances look good [S1]." still pass after the code-built
     comparison. Needs a second-person outcome check when a user AIR is present.
+    **Fixed in Step 5** (see "2026-11-21: Step 5 answer fixes").
   - [review] "Government Medical College Nagpur" is a clarify (a rival name with extra words the
     user did not type ties on coverage); a regression from the fail-closed tie rule.
   - [review] Lowercase "ms"/"dm" in an unknown institute name ("MS Ramaiah") gives the PG refusal
@@ -249,4 +250,121 @@ texts (`tests/test_answer_integration.py::test_probe_*`, skip without DB/LLM).
   - [audit] Institute names starting with "Pt." (and other unlisted abbreviations) split the
     template sentence in `sentences()`, so the round is "not named" and the answer is refused
     although the cell exists. Fix: extend `_ABBREV_END` or keep institute names from breaking
-    sentences; pin "PT. B.D. SHARMA PGIMS".
+    sentences; pin "PT. B.D. SHARMA PGIMS". **Fixed in Step 5** (see "2026-11-21: Step 5 answer
+    fixes").
+
+## 2026-11-21: Step 5 predictor + eval runner
+
+Written before the first scored run that includes predictor questions. How `pred-*` are scored:
+
+- `expected_behavior: answer` (pred-01..03): the runner calls `POST /predict` on the predictor
+  service (`PREDICTOR_URL`, default 127.0.0.1:8003) with the question's `inputs` exactly as locked.
+  The question text is not sent anywhere; no LLM is involved. Checks (each a named failure):
+  - `option_count`: `len(options) == option_count == expected_option_count`.
+  - `institutes_in_scope`: equals the golden value where the question gives one.
+  - `recall` / `precision`: institute set match. An expected entry matches an option when its
+    `institute_match` is a substring of the option's institute name after lower-casing and removing
+    all whitespace (wrap-insensitive). recall = expected entries matched by exactly one option /
+    expected entries; precision = options matched by some expected entry / options. Pass needs both
+    = 1. The two values are written to the score table (they are ratios, not MCC figures).
+  - `round_and_allotments_named`: every cell of every option has round = the input round and
+    allotments >= 1 (project rule g).
+  - `cells`: for each matched option, its cells as (category, closing_rank, allotments, file, page,
+    line) equal the golden `cells` exactly (closing_rank compared as the printed text).
+  - `best_in_scope` (expected_option_count 0, pred-03): options empty and `best_in_scope`
+    closing_rank / allotments / file / page / line equal the single golden expected value; an
+    `empty_message` must be present.
+  - `disclaimer`: `note` and the MCC `source_credit` are present.
+  - `must_not_contain`: the same phrase check as for /ask, applied to the user-visible text of the
+    response (institute names, explanations, empty_message, note).
+- `expected_behavior: refuse` (pred-04): sent to `/ask` as question text and scored exactly like
+  other questions (status `refused`, `must_not_contain`). Not routed to /predict: the question asks
+  for a cut-off that does not exist, so the honest outcome is a refusal from the answer service.
+- Latency for /predict questions is recorded but excluded from the median (it measures SQL, not
+  generation); the median stays an /ask figure.
+
+## 2026-11-21: Step 5 answer fixes
+
+Each fix is general code; no institute name or question text is special-cased. Tests were run
+against the unfixed code first and failed.
+
+- [review] Model-written admission verdicts are rejected anywhere in a sentence, not only as an
+  opener: "you can/could/will/would/may/might/'ll/'d (not) get / secure / make it", "you are
+  eligible", "you qualify", "you have / stand a good|fair|high|low|... chance", "your chances are
+  good|high|...". Only the code-built Yes/No comparison pair may give a verdict. A verdict draft
+  falls back to the template (which carries the code-built pair). Checked, without tuning, that no
+  served answer or model draft in the recorded eval runs (270 texts) or in `logs/answer.log` (229
+  drafts) changes verdict under the new rule. Tests:
+  `libs/common/tests/test_verify.py::test_model_verdict_phrases_fail_anywhere_in_a_sentence`,
+  `test_non_verdict_sentences_still_pass`, `test_code_comparison_pair_still_passes_with_verdict_rule`,
+  `services/answer/tests/test_step5.py::test_model_verdict_mid_sentence_falls_back_to_the_code_built_comparison`,
+  `test_false_premise_model_answer_without_a_verdict_is_still_served`,
+  `test_guarantee_model_answer_without_a_verdict_is_still_served`.
+- [audit] Sentence splitting is abbreviation-aware. `sentences()` never splits (a) inside the
+  institute name of a provided source row (exact string, so catalog names with "TOWN." or
+  "Akola." in them stay whole), (b) after a known abbreviation in any case (Pt, Dr, St, Smt, Lt,
+  Govt, Med, Inst, Univ, Uni, Coll, Sci, Scie, Sce, Dist, Distt, Opp, Hosp, ...), (c) after an
+  initial or run of initials ("B.D.", "S.N.", "K."), (d) after a 2-4 letter all-capitals token
+  ("PT.", "DIST.", "MED."). Real sentence ends still split ("... [S1]. The next ...", "Goa.
+  Seats ..."), and a part opening as a verdict ("Yes, ...") is never glued onto the previous
+  sentence. The token list came from scanning `neet.institute` display names. Tests:
+  `test_institute_name_abbreviations_do_not_split_a_sentence`, `test_real_sentence_ends_still_split`,
+  `test_rejoin_never_hides_a_verdict_opener`,
+  `test_template_for_an_abbreviated_institute_name_is_answered_not_refused`,
+  `test_model_answer_with_abbreviated_name_is_served`, integration
+  `tests/test_answer_integration.py::test_probe_abbreviated_institute_name_is_answered` (expected
+  cell read from Postgres as neet_reader at test time).
+- [audit] Checked (golden is also the dev set): pred-04's question text already refuses with the
+  no-cell message (no Round 3 cell for that quota/category; no other round substituted). No change.
+- API for the web UI (no answer-behaviour change): `AskResponse.clarify_options`
+  (`ClarifyOption{institute_id, label}`; filled only for institute-ambiguity clarifies, label = the
+  institute name without address), `AskResponse.guarantee_note` (true when the guarantee-limits
+  sentence was prepended; the sentence stays in `answer`), `AskRequest.institute_id` (pins a
+  catalog institute and skips resolution only; scope guard, slots and verifier unchanged; unknown
+  id is refused). Retrieval gains `GET /institutes/{id}` (catalog lookup, 404 if unknown). Tests:
+  `services/answer/tests/test_step5.py` (clarify options, pinning, unknown id, scope guard with a
+  pinned id, HTTP client + /ask passthrough), `services/retrieval/tests/test_institute_lookup.py`.
+
+### Review of the Step 5 answer fixes (same day)
+
+- [review] Blocker: a pinned `institute_id` answered for the pinned institute even when the
+  question named a different one. Now, when the question names an institute, it is resolved as
+  usual and the pin is used only if it is the resolved institute or one of the ambiguous
+  candidates; otherwise the pin is ignored (`debug.resolve.pin_ignored`) and the named institute
+  is answered, clarified or refused as normal. A pin alone decides only when the question names no
+  institute. Tests (`services/answer/tests/test_step5.py`):
+  `test_pin_for_a_different_institute_than_the_named_one_is_ignored`,
+  `test_pin_not_among_ambiguous_candidates_still_clarifies`,
+  `test_pin_with_an_unknown_named_institute_is_refused_not_answered_for_the_pin`,
+  `test_unknown_pin_is_ignored_when_the_question_names_an_institute`,
+  `test_clarify_then_pin_flow_answers_for_the_picked_campus`, `test_unknown_pinned_institute_is_refused`.
+- [review] The verdict phrase list kept leaking. Added a structural rule on top of it: a model
+  sentence (anything but the code-built comparison pair) that addresses the reader (you / your /
+  yours / you're / you'd / you'll / you've) and contains an outcome word (get, got, seat, allot*,
+  admi*, chance, odds, likely, likelihood, eligib*, qualif*, cut (not cut-off), make it, land*,
+  secur*, realistic, placed, expect*, reach*, within, safe*) fails. Data labels are masked first
+  ("N allotments", "... Seat(s) Quota", "allotted category"). Re-check against the pre-Step-5
+  verifier: of 270 recorded eval-run texts (served answers and drafts) none moves from pass to
+  fail (11 already-failing texts gain this error too); of 241 drafts in `logs/answer.log`, 22 hit
+  the rule, and 2 distinct texts among them had passed when logged: "Your rank is higher, but this
+  does not guarantee a seat ..." (a model comparison, rightly rejected) and "Past figures cannot
+  predict your chances; cut-offs vary each year." (fail-closed false positive: such a draft now
+  falls back to the template). Tests: `test_reader_outcome_sentences_fail` (every reviewer string),
+  `test_reader_sentences_without_an_outcome_word_pass`, `test_data_labels_are_not_outcome_words`,
+  `test_cut_off_is_a_data_word_but_make_the_cut_is_a_verdict`.
+- [review] Nit: pinned the fail-closed merge after an all-caps word ("... [S1] for MBBS. It closed
+  at X [S2]." becomes one two-source sentence with figures, so it is refused). Test:
+  `test_merge_after_a_caps_word_fails_closed` (it also failed closed before the splitting change,
+  for a different reason: no round named).
+
+### Open after the Step 5 final audit (run 20261121T115344Z, 18/18 scored)
+- [audit] "Was AIR X within the Round N closing rank ..." phrasing is routed as a plain closing-rank
+  lookup (intent closing_rank), so the answer states the cell but no code-built Yes/No comparison.
+- [audit] A guarantee question ("Will I definitely get ...") whose AIR is within the cell gets the
+  bare code-built "Yes." sentence after the limits line; consider "In 2025, yes: ..." wording.
+- [audit] The guarantee filter rejects negated forms ("would not have been guaranteed"), pushing
+  inj-02 to the template (answer still correct). Fail-closed; relax only with tests.
+- [audit] Slot extraction mislabelled quota/course/category on inj-02; the resolver and cell
+  lookup recovered, but the slots are fragile.
+- [audit] With several cited rounds, the "No."/"Yes." comparison line repeats once per round, and an
+  absent later round is not mentioned.

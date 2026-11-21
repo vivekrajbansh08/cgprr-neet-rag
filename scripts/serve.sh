@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# Start / stop the retrieval (8001) and answer (8002) services on 127.0.0.1 with uvicorn (no Docker).
+# Start / stop the retrieval (8001), answer (8002) and predictor (8003) services on 127.0.0.1 with uvicorn (no Docker).
 # PID files and service logs go to logs/. Usage: scripts/serve.sh start|stop
 set -euo pipefail
 cd "$(dirname "$0")/.."
 mkdir -p logs
 
-SERVICES=("retrieval:neet_retrieval.app:app:8001" "answer:neet_answer.app:app:8002")
+SERVICES=("retrieval:neet_retrieval.app:app:8001" "answer:neet_answer.app:app:8002"
+          "predictor:neet_predictor.app:app:8003")
 
 start() {
   for spec in "${SERVICES[@]}"; do

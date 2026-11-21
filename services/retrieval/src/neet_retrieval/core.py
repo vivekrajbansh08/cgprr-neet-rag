@@ -12,6 +12,7 @@ from neet_common.schemas import (
     CellsRequest,
     CellsResponse,
     InstituteCandidate,
+    InstituteInfo,
     ResolveRequest,
     ResolveResponse,
     SearchHit,
@@ -58,6 +59,16 @@ def load_catalog(pool: ConnectionPool) -> Catalog:
         rows = conn.execute(sql.INSTITUTES).fetchall()
     inst = {r[0]: Institute(id=r[0], display_name=r[1], state=r[2]) for r in rows}
     return Catalog(institutes=inst, idf=IdfIndex.build(i.display_name for i in inst.values()))
+
+
+def institute_info(cat: Catalog, institute_id: int) -> InstituteInfo | None:
+    """One catalog institute by id (the catalog was read with fixed SQL as neet_reader)."""
+    i = cat.institutes.get(institute_id)
+    if i is None:
+        return None
+    return InstituteInfo(
+        id=i.id, display_name=i.display_name, short_name=short_name(i.display_name), state=i.state
+    )
 
 
 def _vector_literal(v: Sequence[float]) -> str:
