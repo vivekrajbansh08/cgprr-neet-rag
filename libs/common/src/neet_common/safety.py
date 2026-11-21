@@ -1,4 +1,4 @@
-"""Detect retrieved text that looks like instructions aimed at the model (project rules).
+"""Detect retrieved text that looks like instructions aimed at the model (project rules in README.md).
 
 Retrieved text is data, never instructions. Chunks matching these patterns are logged and dropped
 before they reach a prompt. The patterns are deliberately conservative: MCC notices are formal prose

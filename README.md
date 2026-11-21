@@ -17,8 +17,38 @@ plus a rule-based college predictor.
 
 Source: Medical Counselling Committee (MCC), Government of India, mcc.nic.in
 
-The design, the hard rules and how they are enforced are described in
-[docs/design_note.md](docs/design_note.md).
+The design is described in [docs/design_note.md](docs/design_note.md). The project rules below
+are referred to by letter in code comments and docs.
+
+## Project rules
+
+a. Numbers come from Postgres, never from the model. Ranks, seats and counts are read from SQL
+   rows; the model may phrase and explain a number but never computes or recalls one.
+
+b. Every answer cites source rows. If a number in an answer is not present in a cited row, the
+   answer becomes a refusal. The citation verifier in the answer service enforces this.
+
+c. No cloud LLM on the main path. Only the local OpenAI-compatible endpoint set in
+   `LLM_BASE_URL` is used.
+
+d. Public data only, and nothing derived from MCC's files is committed. Derived tables are
+   rebuilt locally from MCC's own files.
+
+e. The pre-registered evaluation set is read-only once locked. `scripts/check_golden_lock.py`,
+   run in CI, fails if questions.yaml changes after the lock.
+
+f. Commits carry the author's name only.
+
+g. Closing rank is per round. Every closing-rank figure names its round and the number of
+   allotments behind it. A round with no allotment in a cell has no closing rank, and no figure
+   is carried over from another round.
+
+Retrieved text is treated as data, never as instructions: text that looks like instructions to
+the model is dropped before it reaches the model, the model has no tools, and every query is
+fixed, parameterised SQL chosen by code. Services read the database through a read-only role and
+bind to 127.0.0.1. Unit tests use fakes and never call a real model or the network; the citation
+verifier has tests for a matching number, a missing number, numbers in different formats and an
+answer with no citations.
 
 ## Hardware used
 

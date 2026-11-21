@@ -1,4 +1,4 @@
-"""Prompt-injection screen for retrieval chunks (project rules).
+"""Prompt-injection screen for retrieval chunks (project rules in README.md).
 
 Retrieved text is data, never instructions. Chunks that look like instructions aimed at a model are
 logged and dropped before they reach the index. The pattern list is deliberately small and literal;

@@ -1,4 +1,4 @@
-"""Citation verifier (project rule b). Pure code: no LLM, no I/O. Never weaken it to pass an eval.
+"""Citation verifier (project rule b, README.md). Pure code: no LLM, no I/O. Never weaken it to pass an eval.
 
 Shared by services/answer (decides what may be served) and jobs/eval (re-checks every returned
 answer independently, without trusting the service's verdict).

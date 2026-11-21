@@ -1,4 +1,4 @@
-"""Citation verifier (project rule b). Invented values only."""
+"""Citation verifier (project rule b in README.md). Invented values only."""
 
 from decimal import Decimal
 

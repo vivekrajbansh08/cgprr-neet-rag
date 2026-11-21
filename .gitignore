@@ -14,7 +14,7 @@ build/
 !.env.example
 
 # Data: raw MCC PDFs, row-level data and anything derived from them are never committed
-# (MCC copyright: rebuild locally with scripts/fetch_sources.sh + ingest; project rule d)
+# (MCC copyright: rebuild locally with scripts/fetch_sources.sh + ingest; project rule d in README.md)
 data/raw/*
 !data/raw/.gitkeep
 !data/raw/MANIFEST.md
@@ -35,9 +35,6 @@ logs/*
 .DS_Store
 .idea/
 .vscode/
-
-# Local marker for the locked golden set (see eval/golden/README.md)
-eval/golden/.locked
 
 # Raw eval runs (answers contain MCC figures; only score_table.md is committed)
 eval/results/runs/

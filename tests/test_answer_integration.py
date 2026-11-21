@@ -144,7 +144,7 @@ PG_REFUSAL = "not postgraduate courses"
 
 def _db_cells(settings: Settings, name_prefix: str, course: str, quota: str, category: str) -> set:
     """Expected cells read straight from Postgres as neet_reader (independent of the services), so
-    no MCC figure is written into this file (project rule d)."""
+    no MCC figure is written into this file (project rule d in README.md)."""
     with connect(settings, "neet_reader", connect_timeout=3) as conn:
         rows = conn.execute(
             "SELECT c.round, c.closing_rank, c.allotments FROM neet.closing_rank c"

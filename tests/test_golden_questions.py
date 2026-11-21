@@ -39,7 +39,7 @@ def test_structure_and_mix():
 
 
 def test_every_closing_rank_value_carries_its_allotment_count():
-    # project rule g: a closing rank is never stated without its round and allotment count.
+    # Project rule g (README.md): a closing rank is never stated without its round and allotment count.
     for _, _, v in CLOSING:
         assert isinstance(v["allotments"], int) and v["allotments"] >= 1
         assert v["oracle"]["round"] in (1, 2, 3)
