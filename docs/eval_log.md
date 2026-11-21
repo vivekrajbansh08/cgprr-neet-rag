@@ -369,3 +369,12 @@ against the unfixed code first and failed.
   lookup recovered, but the slots are fragile.
 - [audit] With several cited rounds, the "No."/"Yes." comparison line repeats once per round, and an
   absent later round is not mentioned.
+
+## 2026-11-21: history rewrite and lock record
+
+- Local development tooling configuration was removed from the repository and from its history,
+  so every commit hash changed. The locked question file was not modified: its sha256 in
+  LOCK.json still matches, and `scripts/check_golden_lock.py` passes.
+- LOCK.json `oracle_commit` was updated from 71ec6c3695a8961b546140a6819d650d0b544e6b (the hash
+  before the rewrite) to 5c7545d3a841c9b20ad1d6f0385d9f897f74100b, the rewritten hash of the same
+  commit ("docs, eval: apply data-policy decisions and finalise golden questions").
