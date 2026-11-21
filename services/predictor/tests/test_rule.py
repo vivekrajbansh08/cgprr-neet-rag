@@ -5,8 +5,8 @@ from decimal import Decimal
 
 import pytest
 from fastapi.testclient import TestClient
-from neet_common.predictor import NOTE, SOURCE_CREDIT, PredictRequest
-from neet_predictor.app import app, get_pool
+from neet_common.predictor import NOTE, SOURCE_CREDIT, FormOptions, PredictRequest
+from neet_predictor.app import app, get_form_values, get_pool
 from neet_predictor.rule import Row, eligible_categories, file_short, predict
 
 SHA = "a" * 64
@@ -170,8 +170,16 @@ def test_file_short():
     ],
 )
 def test_invalid_inputs_are_422(body):
-    # No lifespan, no DB: a stand-in pool; validation must reject the body before any query runs.
+    # No lifespan, no DB: stand-in pool and form values, so the test never depends on a DB or on
+    # another test having filled app.state.form_values; validation must reject the body.
     app.dependency_overrides[get_pool] = object
+    app.dependency_overrides[get_form_values] = lambda: FormOptions(
+        categories=["General", "OBC", "EWS", "SC", "ST"],
+        quotas=["Q"],
+        courses=["MBBS"],
+        rounds=[1, 2, 3],
+        states=[],
+    )
     try:
         assert TestClient(app).post("/predict", json=body).status_code == 422
     finally:
